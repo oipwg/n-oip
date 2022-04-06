@@ -1,0 +1,37 @@
+{
+  "name": "oip-api",
+  "version": "1.0.0",
+  "description": "publishing api for Open Index Protocol",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": " ./node_modules/fcoin/bin/fcoin --index-tx=true --index-address=true --log-level=debug --no-auth=false & nodemon app.js",
+    "api": " ./node_modules/fcoin/bin/fcoin --index-tx=true --index-address=true --log-level=error --no-auth=false & nodemon app.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@babel/runtime": "^7.17.8",
+    "@oipwg/fclient": "^0.1.7",
+    "axios": "^0.26.1",
+    "bcrypto": "^5.4.0",
+    "bfilter": "github:devonjames/bfilter",
+    "bitcoinjs-lib": "^5.0.3",
+    "bitcoinjs-message": "^2.2.0",
+    "bsert": "^0.0.10",
+    "core-js": "^3.21.1",
+    "crypto-js": "^4.1.1",
+    "dotenv": "^16.0.0",
+    "es6": "^0.0.7",
+    "express": "^4.17.3",
+    "fcoin": "github:oipwg/fcoin",
+    "insight-explorer": "git+https://github.com/oipwg/insight-explorer.git",
+    "js-oip": "github:oipwg/js-oip",
+    "leveldown": "^6.1.1",
+    "loady": "^0.0.5",
+    "node-fetch": "^2.6.7",
+    "nodemon": "^2.0.15",
+    "oip-protobufjs": "github:oipwg/oip-protobufjs",
+    "wif": "^2.0.6"
+  }
+}
