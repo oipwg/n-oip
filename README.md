@@ -16,6 +16,8 @@ Install the application with the command:
 
 You'll need to generate your own API key to provide a secure connection between the `n-oip` application and `fcoin`. You can generate this key however you'd like, but it is advised that it is unique and long enough that it is hard to guess. Once you have generated a key, store it in the `fcoin.conf` file, in the `HTTP` section at the bottom of the file (Ensure that you remove the # before it to un-comment it).
 
+In order for the `n-oip` application to have access to this key also, you'll need to create a new `.env` file inside the `n-oip` folder, with a single item in it, `apiKey=$YOURSECUREAPIKEY`, of course replacing $YOURSECUREAPIKEY with the key you created.
+
 ## Start the API server
 
 Start the `n-oip` application with the command `npm run api`, which will start both `fcoin`, and the api server itself. You can also use `npm run dev`, the only difference being the level of logging that `fcoin` provides.
@@ -34,6 +36,7 @@ Start the `n-oip` application with the command `npm run api`, which will start b
 ### getInfo
 
 HTTP Request
+
 `GET /api/v1/getInfo`
 
 <table><thead>
@@ -48,3 +51,68 @@ HTTP Request
 </tr>
 </tbody></table>
 
+### createWallet
+
+HTTP Request
+
+`POST /api/v1/createWallet`
+
+JSON body
+
+```{"emailaddress":"user@host.tld","options":{"passphrase": "passphrase"}}```
+
+### getWalletBalance
+
+HTTP Request
+
+`POST /api/v1/getWalletBalance`
+
+JSON body
+
+```{"emailaddress":"user@host.tld"}```
+
+### registerPublisher
+
+HTTP Request
+
+`POST /api/v1/registerPublisher`
+
+JSON body
+
+```[{"emailaddress":"user@host.tld", "passphrase": "passphrase"},{"pubKey":"publickeyaddress","name": "publishername"}]```
+
+### getRecord
+
+HTTP Request
+
+`GET /api/v1/getRecord/:recordId`
+
+<table><thead>
+<tr>
+<th>Parameter</th>
+<th>Description</th>
+</tr>
+</thead><tbody>
+<tr>
+<td>recordId</td>
+<td>TXID of the Record</td>
+</tr>
+</tbody></table>
+
+### getExpandedRecord
+
+HTTP Request
+
+`GET /api/v1/getExpandedRecord/:recordId`
+
+<table><thead>
+<tr>
+<th>Parameter</th>
+<th>Description</th>
+</tr>
+</thead><tbody>
+<tr>
+<td>recordId</td>
+<td>TXID of the Record</td>
+</tr>
+</tbody></table>
