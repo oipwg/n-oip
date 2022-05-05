@@ -1,0 +1,11 @@
+version: '3.7'
+services:
+  web:
+    build: .
+    entrypoint: ["npm", "run", "dev"]
+    restart: always
+    ports:
+      - '3000:3000'
+      - '7312:7312'
+    volumes:
+      - ./data/.fcoin:/root/.fcoin
