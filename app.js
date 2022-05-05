@@ -141,6 +141,14 @@ async function getwalletinfo(id) {
   return result
 }
 
+// get wallet account info
+async function getAccountInfo(id, account) {
+  const wallet = walletClient.wallet(id); 
+  const result = await wallet.getAccount(account);
+  // console.log('result of getAccountInfo:', result);
+  return result
+}
+
 // sign message with wallet private key
 async function signMessage(wif, pubKey, message) {
   network = 'mainnet';
@@ -322,6 +330,10 @@ async function getTemplateInfo(templateType){
       templateName = 'tmpl_834772F4';
       descriptor = 'CkoKB3AucHJvdG8SEm9pcFByb3RvLnRlbXBsYXRlcyIjCgFQEgsKA3VybBgBIAEoCRIRCgl5b3VUdWJlSWQYAiABKAliBnByb3RvMw=='
       break;
+    case 'person':
+      templateName = 'tmpl_B6E9AF9B';
+      descriptor = 'ClEKB3AucHJvdG8SEm9pcFByb3RvLnRlbXBsYXRlcyIqCgFQEg8KB3N1cm5hbWUYASABKAkSFAoMcGxhY2VPZkJpcnRoGAIgASgJYgZwcm90bzM='
+      break;
     default:
       break;
   }
@@ -382,6 +394,31 @@ async function formatRecord(recordData){
   textData[0].basic.language = (record.language === "Language_EN") ? 23 : null;
   textData[0].basic.date = record.date || '';
   
+  // const bylineWriter = [];
+  bylineWriterRecord = {
+    'basic': {
+      'name': '',
+      'description': '',
+      'language': '',
+      'date': '',
+      'avatar': '',
+      'tagList': ''
+    },
+    'person': {
+      'surname': '',
+      'placeOfBirth': ''
+    }
+  }
+
+  const bylineWriterData = [bylineWriterRecord]
+  if (record.bylineWriter) {
+    const bylineWriterArray = record.bylineWriter.split(' ');
+      bylineWriterData[0].basic.name = bylineWriterArray[0];
+      bylineWriterData[0].person.surname = bylineWriterArray[1];
+  }
+  // console.log('bylineWriterRecord', bylineWriterRecord);
+
+
   const embeddedImages = [];
   const embeddedImageAddresses = [];
   const embeddedImageCaptions = [];
@@ -482,11 +519,283 @@ async function formatRecord(recordData){
   // console.log('articleData', articleData,'textData',textData,'embeddedVideos',embeddedVideos, 'embeddedImages',embeddedImages);
   const response = {
     'articleData': articleData,
+    'bylineWriterData': bylineWriterData,
     'textData': textData,
     'embeddedVideos': embeddedVideos,
     'embeddedImages': embeddedImages
   }
   return response
+}
+
+// search for a record by its content and template
+async function searchByContent(content,template) {
+  // replace all spaces with %20 in the string "content"
+  content = content.replace(/ /g, '%20');
+
+  let record
+    try {
+      record = await axios.get(`https://api.oip.io/oip/o5/record/search?q=_exists_:record.details.${template}%20AND%20${content}`);
+      return record.data
+    } catch (error) {
+      console.log('error', error)
+    }
+
+}
+
+async function searchForBylineWriter(BylineWriter) {
+  let BylineWriterName = BylineWriter.split(' ')[0];
+  let BylineWriterSurname = BylineWriter.split(' ')[1];
+  let FirstOnlyOrBoth = (BylineWriterName && BylineWriterSurname) ? 'both' : 'first';
+  let record
+  
+  try {
+    switch(FirstOnlyOrBoth) {
+      case 'first':
+        record = await axios.get(`https://api.oip.io/oip/o5/record/search?q=_exists_:record.details.tmpl_B6E9AF9B%20AND%20record.details.tmpl_20AD45E7.name:${BylineWriterName}`);
+        break;
+      case 'both':
+        record = await axios.get(`https://api.oip.io/oip/o5/record/search?q=record.details.tmpl_20AD45E7.name:${BylineWriterName}%20AND%20record.details.tmpl_B6E9AF9B.surname:${BylineWriterSurname}`);
+        break;
+      default:
+    }
+    // console.log('record', record);
+    // if record is undefined, bylineWriter is not found
+    if (record === undefined) {
+      // console.log('no results')
+      return null
+    } else {
+    // record = await axios.get(`https://api.oip.io/oip/o5/record/search?q=record.details.tmpl_20AD45E7.name:${BylineWriterName}%20AND%20record.details.tmpl_B6E9AF9B.surname:${BylineWriterSurname}`);
+    // console.log('record', record.data)
+    return record.data
+  }} catch (error) {
+    console.log('error', error)
+  }
+}
+
+async function searchForVideoRecords(formattedEmbeddedVideos, i) {
+  let name = formattedEmbeddedVideos[i].basic.name.replace(/ /g, '%20') || "*";
+  let description = formattedEmbeddedVideos[i].basic.description.replace(/ /g, '%20') || "*";
+  let language = (formattedEmbeddedVideos[i].basic.language === "Language_EN") ? (23) : ("*");
+  
+  let addressDirectory = formattedEmbeddedVideos[i].video.addressDirectory || "*";
+  let filename = formattedEmbeddedVideos[i].video.filename || "*";
+  let thumbnailFilename = formattedEmbeddedVideos[i].video.thumbnailFilename || "*";
+  let displayName = formattedEmbeddedVideos[i].video.displayName || "*";
+  let publishDate = formattedEmbeddedVideos[i].video.publishDate || "*";
+  
+  let youTubeId = formattedEmbeddedVideos[i].youtube.youTubeId || "*";
+  // console.log('data for video ', i, addressDirectory,filename,displayName,publishDate,name,description,youTubeId);
+  let record
+  
+  let parameterString = "https://api.oip.io/oip/o5/record/search?q="
+    if (name !== "*") {
+      parameterString += `record.details.tmpl_20AD45E7.name:${name}%20AND%20`
+    }
+    if (description !== "*") {
+      parameterString += `record.details.tmpl_20AD45E7.description:${description}%20AND%20`
+    }
+    if (language !== "*") {
+      parameterString += `record.details.tmpl_20AD45E7.language:${language}%20AND%20`
+    }
+    if (addressDirectory !== "*") {
+      parameterString += `record.details.tmpl_9705FC0B.addressDirectory:${addressDirectory}%20AND%20`
+    }
+    if (filename !== "*") {
+      parameterString += `record.details.tmpl_9705FC0B.filename:${filename}%20AND%20`
+    }
+    if (thumbnailFilename !== "*") {
+      parameterString += `record.details.tmpl_9705FC0B.thumbnailFilename:${thumbnailFilename}%20AND%20`
+    }
+    if (displayName !== "*") {
+      parameterString += `record.details.tmpl_9705FC0B.displayName:${displayName}%20AND%20`
+    }
+    if (publishDate !== "*") {
+      parameterString += `record.details.tmpl_9705FC0B.publishDate:${publishDate}%20AND%20`
+    }
+    if (youTubeId !== "*") {
+      parameterString += `record.details.tmpl_834772F4.youTubeId:${youTubeId}%20AND%20`
+    }
+    parameterString = parameterString.slice(0, -9)
+    // console.log('parameterString', parameterString)
+  try {
+    record = await axios.get(parameterString);
+    if (record.data.results === 0) {
+      // console.log('no results')
+      return null
+    } else {
+    // console.log('matching video record found in index')
+    return record.data
+    }
+  } catch (error) {
+    console.log('error', error)
+  }
+}
+
+async function searchForImageRecords(formattedEmbeddedImages, i) {
+  let filename = formattedEmbeddedImages[i].image.filename || "*";
+  let thumbnailAddress = formattedEmbeddedImages[i].image.thumbnailAddress || "*";
+  let imageAddress = formattedEmbeddedImages[i].image.imageAddress || "*";
+  let network = (formattedEmbeddedImages[i].image.network === "Network_IPFS") ? (1) : ("*");
+  
+  // console.log('data for video ', i, addressDirectory,filename,displayName,publishDate,name,description,youTubeId);
+  let record
+  
+  let parameterString = "https://api.oip.io/oip/o5/record/search?q="
+    if (filename !== "*") {
+      parameterString += `record.details.tmpl_1AC73C98.filename:${filename}%20AND%20`
+    }
+    if (thumbnailAddress !== "*") {
+      parameterString += `record.details.tmpl_1AC73C98.thumbnailAddress:${thumbnailAddress}%20AND%20`
+    }
+    if (imageAddress !== "*") {
+      parameterString += `record.details.tmpl_1AC73C98.imageAddress:${imageAddress}%20AND%20`
+    }
+    if (network !== "*") {
+      parameterString += `record.details.tmpl_1AC73C98.network:${network}%20AND%20`
+    }
+    parameterString = parameterString.slice(0, -9)
+    // console.log('parameterString for image record search',i, parameterString)
+  try {
+    record = await axios.get(parameterString);
+    if (record.data.results === 0) {
+      // console.log('no results')
+      return null
+    } else {
+    // console.log('matching image record found in index')
+    return record.data
+    }
+  } catch (error) {
+    console.log('error', error)
+  }
+}
+
+async function searchForTextRecord(formattedTextData) {
+  let date = formattedTextData[0].basic.date || "*";
+  let language = (formattedTextData[0].basic.language === "Language_EN") ? (23) : ("*");
+  let textAddress = formattedTextData[0].text.textAddress || "*";
+  let textFiletype = (formattedTextData[0].text.textFiletype === "TextFiletype_MD") ? (1) : ("*");
+  let network = (formattedTextData[0].text.network === "Network_IPFS") ? (1) : ("*");
+  
+  // console.log('data for video ', i, addressDirectory,filename,displayName,publishDate,name,description,youTubeId);
+  let record
+  let parameterString = "https://api.oip.io/oip/o5/record/search?q="
+    if (date !== "*") {
+      parameterString += `record.details.tmpl_20AD45E7.date:${date}%20AND%20`
+    }
+    if (language !== "*") {
+      parameterString += `record.details.tmpl_20AD45E7.language:${language}%20AND%20`
+    }
+    if (textAddress !== "*") {
+      parameterString += `record.details.tmpl_769D8FBC.textAddress:${textAddress}%20AND%20`
+    }
+    if (textFiletype !== "*") {
+      parameterString += `record.details.tmpl_769D8FBC.textFiletype:${textFiletype}%20AND%20`
+    }
+    if (network !== "*") {
+      parameterString += `record.details.tmpl_769D8FBC.network:${network}%20AND%20`
+    }
+    parameterString = parameterString.slice(0, -9)
+    // console.log('parameterString for text record search', parameterString)
+  try {
+    record = await axios.get(parameterString);
+    if (record.data.results === 0) {
+      // console.log('no results')
+      return null
+    } else {
+    // console.log('matching text record found in index')
+    return record.data
+    }
+  } catch (error) {
+    console.log('error', error)
+  }
+}
+
+async function searchForArticleRecord(formattedArticleData, embeddedVideoTXIDs, embeddedTextTXID, embeddedImageTXIDs, bylineWriterTXID) {
+  let date = formattedArticleData[0].basic.date || "*";
+    
+  let tagList = formattedArticleData[0].basic.tagList.toString().replace(/ /g, '%20').replace(/,/g, '%20').replace(/\./g,'%2E') || "*";
+  let name = formattedArticleData[0].basic.name.replace(/ /g, '%20').replace(/,/g, '%20').replace(/\./g,'%2E') || "*";
+  let description = formattedArticleData[0].basic.description.replace(/ /g, '%20').replace(/,/g, '%20').replace(/\./g,'%2E').replace(/"/g, '%22').replace(/'/g, '%22').replace(/“/g, '%22').replace(/”/g, '%22') || "*";
+  let language = (formattedArticleData[0].basic.language === "Language_EN") ? (23) : ("*");
+  let bylineWriter = bylineWriterTXID.toString();
+  // let findBylineWriter = await searchForBylineWriter(formattedArticleData[0].article.bylineWriter)
+  // console.log('findBylineWriter', findBylineWriter.results[0].meta.txid)
+  // let bylineWriter = (findBylineWriter !== null) ? (findBylineWriter.results[0].meta.txid) : ("*");
+  // searchForBylineWriter
+  let bylineWritersTitle = formattedArticleData[0].article.bylineWritersTitle.replace(/ /g, '%20').replace(/,/g, '%20').replace(/\./g,'%2E') || "*";
+  let bylineWritersLocation = formattedArticleData[0].article.bylineWritersLocation.replace(/ /g, '%20').replace(/,/g, '%20').replace(/\./g,'%2E') || "*";
+  let imageList = embeddedImageTXIDs.toString().replace(/,/g, '%20')
+  // let imageList = formattedArticleData[0].article.imageList || "*";
+  // console.log('imageCaptionList', formattedArticleData[0].article.imageCaptionList)
+  // let imageCaptionList = []
+  // for (let i = 0; i < formattedArticleData[0].article.imageCaptionList.length; i++) {
+  //   console.log('imageCaption number', i, formattedArticleData[0].article.imageCaptionList[i])
+  //   imageCaptionList.push(formattedArticleData[0].article.imageCaptionList[i].replace(/ /g, '%20').replace(/,/g, '%2C'))
+  // }
+  let imageCaptionList = formattedArticleData[0].article.imageCaptionList.toString().replace(/ /g, '%20').replace(/,/g, '%20').replace(/\./g,'%2E') || "*";
+  let videoList = embeddedVideoTXIDs.toString().replace(/,/g, '%20')
+  // let videoList = formattedArticleData[0].article.videoList || "*";
+  // let videoCaptionList = []
+  // for (let i = 0; i < formattedArticleData[0].article.videoCaptionList.length; i++) {
+    // videoCaptionList.push(formattedArticleData[0].article.videoCaptionList[i].replace(/ /g, '%20').replace(/,/g, '%2C'))
+  // }
+  let videoCaptionList = formattedArticleData[0].article.videoCaptionList.toString().replace(/ /g, '%20').replace(/,/g, '%20') || "*";
+
+  // console.log('data for video ', i, addressDirectory,filename,displayName,publishDate,name,description,youTubeId);
+  let record
+  let parameterString = "https://api.oip.io/oip/o5/record/search?q="
+    if (date !== "*") {
+      parameterString += `record.details.tmpl_20AD45E7.date:${date}%20AND%20`
+    }
+    if (tagList !== "*") {
+      parameterString += `record.details.tmpl_20AD45E7.tagList:${tagList}%20AND%20`
+    }
+    if (name !== "*") {
+      parameterString += `record.details.tmpl_20AD45E7.name:${name}%20AND%20`
+    }
+    if (description !== "*") {
+      parameterString += `record.details.tmpl_20AD45E7.description:${description}%20AND%20`
+    }
+    if (language !== "*") {
+      parameterString += `record.details.tmpl_20AD45E7.language:${language}%20AND%20`
+    }
+    if (bylineWriter !== "*") {
+      parameterString += `record.details.tmpl_D019F2E1.bylineWriter:${bylineWriter}%20AND%20`
+    }
+    if (bylineWritersTitle !== "*") {
+      parameterString += `record.details.tmpl_D019F2E1.bylineWritersTitle:${bylineWritersTitle}%20AND%20`
+    }
+    if (bylineWritersLocation !== "*") {
+      parameterString += `record.details.tmpl_D019F2E1.bylineWritersLocation:${bylineWritersLocation}%20AND%20`
+    }
+    if (imageList !== "*") {
+      parameterString += `record.details.tmpl_D019F2E1.imageList:${imageList}%20AND%20`
+    }
+    if (imageCaptionList !== "*") {
+      parameterString += `record.details.tmpl_D019F2E1.imageCaptionList:${imageCaptionList}%20AND%20`
+    }
+    if (videoList !== "*") {
+      parameterString += `record.details.tmpl_D019F2E1.videoList:${videoList}%20AND%20`
+    }
+    if (videoCaptionList !== "*") {
+      parameterString += `record.details.tmpl_D019F2E1.videoCaptionList:${videoCaptionList}%20AND%20`
+    }
+
+
+    parameterString = parameterString.slice(0, -9)
+    // console.log('parameterString for article record search', parameterString)
+  try {
+    record = await axios.get(parameterString);
+    if (record.data.results === 0) {
+      // console.log('no results')
+      return null
+    } else {
+    // console.log('matching article record found in index')
+    return record.data
+    }
+  } catch (error) {
+    console.log('error', error)
+  }
 }
 
 // get a record from the blockchain
@@ -582,10 +891,13 @@ app.post('/api/v1/createWallet', (req, res) => {
           "message": wallet.toString()
         });
       } else {
-        createAddress(id, account).then(address => {
+        // createAddress(id, account).then(address => {
+        getAccountInfo(id, account).then(account => {
           getMasterHDKey(id).then(masterHDKey => {
-            getwif(id, address.address).then(wif => {
-              selectwallet(id, address.address, wif).then(null1 => {
+            // getwif(id, address.address).then(wif => {
+            getwif(id, account.receiveAddress).then(wif => {
+              // selectwallet(id, address.address, wif).then(null1 => {
+              selectwallet(id, account.receiveAddress, wif).then(null1 => {
                 encryptwallet(passphrase).then(null2 => {
                   getwalletinfo(id).then(walletinfo => {
                     res.send({
@@ -594,7 +906,7 @@ app.post('/api/v1/createWallet', (req, res) => {
                       "message": "emailAddress is the address associated with your walletID. pubKey is the address to send tokens to before you can publish. Please store your mnemonic, it will not be stored in our database and there is no way to ask for it again!",
                       "emailAddress": emailaddress,
                       "walletID": id,
-                      "pubKey": address.address,
+                      "pubKey": account.receiveAddress,
                       "encrypted": walletinfo.master.encrypted,
                       "mnemonic": masterHDKey.mnemonic.phrase,
                       "xprivkey": masterHDKey.key.xprivkey,
@@ -612,22 +924,21 @@ app.post('/api/v1/createWallet', (req, res) => {
 });
 
 // use this endpoint to generate a receiving address
-app.post('/api/v1/generateReceivingAddress', (req, res) => {
-  const id = req.body.id;
-  // const options = req.body.options;
-  const account = req.body.account;
-  // console.log("id:",id, "account:", account);
-  createAddress(id, account).then(result => {
-    res.send({
-      "currentTime": new Date().toISOString(),
-      "message": "All Systems Operational",
-      "send to this address": result.address,
-      "info": result
-    });
-  });
-  
-  console.log("handling RPC call: createReceivingAddress");
-});
+  // app.post('/api/v1/generateReceivingAddress', (req, res) => {
+  //   const id = req.body.id;
+  //   // const options = req.body.options;
+  //   const account = req.body.account;
+  //   // console.log("id:",id, "account:", account);
+  //   createAddress(id, account).then(result => {
+  //     res.send({
+  //       "currentTime": new Date().toISOString(),
+  //       "message": "All Systems Operational",
+  //       "send to this address": result.address,
+  //       "info": result
+  //     });
+  //   }); 
+  //   console.log("handling RPC call: createReceivingAddress");
+  // });
 
 // use this endpoint to get wallet info including balance
 app.get('/api/v1/getWalletInfo', (req, res) => {
@@ -639,7 +950,7 @@ app.get('/api/v1/getWalletInfo', (req, res) => {
       "currentTime": new Date().toISOString(),
       "wallet id": id,
       "wallet balance": (result.balance.confirmed/100000000).toFixed(8),
-      "info": result
+      "info": wallet
     });
   });
   console.log("handling RPC call: getWalletInfo");
@@ -649,14 +960,15 @@ app.get('/api/v1/getWalletInfo', (req, res) => {
 app.get('/api/v1/getWalletBalance', (req, res) => {
   const emailaddress = req.body.emailaddress || '';
   const id = req.body.id || SHA1(emailaddress).toString();
-  // const id = req.body.id || '';
-  // console.log("id:",id);
   const wallet = walletClient.wallet(id);
   wallet.getInfo(id).then(result => {
-    res.send({
-      "currentTime": new Date().toISOString(),
-      "wallet id": id,
-      "wallet balance": (result.balance.confirmed/100000000).toFixed(8)
+    getAccountInfo(id, 'default').then(accountresponse => {
+      res.send({
+        "currentTime": new Date().toISOString(),
+        "wallet id": id,
+        "public address": accountresponse.receiveAddress,
+        "wallet balance": (result.balance.confirmed/100000000).toFixed(8)
+      });
     });
   });
   console.log("handling RPC call: getWalletInfo");
@@ -739,6 +1051,7 @@ app.post('/api/v1/publishRecord', async (req, res) => {
   const id = authData.id || SHA1(emailaddress).toString();
 
   formattedRecordData = await formatRecord(recordData)
+  formattedBylineWriterData = formattedRecordData.bylineWriterData;
   formattedTextData = formattedRecordData.textData;
   formattedArticleData = formattedRecordData.articleData;
   formattedEmbeddedImages = formattedRecordData.embeddedImages || [];
@@ -764,15 +1077,115 @@ app.post('/api/v1/publishRecord', async (req, res) => {
   unlock = await walletpassphrase(passphrase);
   walletinfo = await getwalletinfo();
   let recordDataX = "";
+  let referencedRecords = [];
+// first we check whether the bylineAuthor is already registered
+  let bylineWriter = recordData.record.bylineWriter;
+  // console.log('bylineWriter:', bylineWriter);
+  
+  bylineWriterRecord = await searchForBylineWriter(bylineWriter);
+    let bylineWriterTXID = [];
+    if(bylineWriterRecord == null){
+      console.log('bylineAuthor not registered, publishing a registration message for:', bylineWriter);
+        let bylineWriterTX = [];
+        const basic = formattedBylineWriterData[i].basic
+        const person = formattedBylineWriterData[i].person
+        const payload = [basic, person];
+        let templates = ['basic','person'];
+        let data = [];
+        for (let i = 0; i < templates.length; i++) {
+          let templateType = templates[i];
+          let templateInfo = await getTemplateInfo(templateType);
+          let templateDescriptor = templateInfo.descriptor;
+          let templateName = templateInfo.name;
+          let templatePayload = payload[i]
+          let template = {
+            descriptor: templateDescriptor,
+            name: templateName,
+            payload: templatePayload
+          }
+          data.push(template);
+        }
+        function makeRecord(data) {
+          return {
+            details: data,
+            myMainAddress: wif,
+            pubKey: pubKey
+          }
+        }
 
-  // first we check if there are any embedded videos and if so we loop thru them and create a new record for each one
+        recordDataX = makeRecord(data);
+        signed64 = await getSignedP64FloData(recordDataX, wif);
+        wallet = await selectwallet(id, pubKey, wif);
+        walletinfo = await getwalletinfo();
+        walletdata = await walletData(pubKey, signed64);
+
+      if (signed64.length > 1040) {
+        let mpx = new Modules.MultipartX(signed64).multiparts;
+        if (!Array.isArray(mpx)) {
+          return console.log('uh oh', mpx);
+        }
+        // mpx
+        signatureData1 = await prepareFirstTXofMP(id, pubKey, wif, mpx);
+        sig1 = await signMessage(wif, pubKey, signatureData1);
+        floData1 = await getFloDataForFirstTXofMP(id, pubKey, wif, mpx, sig1);
+        sendFloDataToChain(floData1, pubKey, wif).then(referenceTxO => {
+          sendRestOfTXsOfMP(id, pubKey, wif, mpx, referenceTxO).then(recordTxidArray => {
+              console.log('recordTxidArray', recordTxidArray);
+              bylineWriterTXID.push(referenceTxO.txid);
+              console.log('bylineWriter registration record', bylineWriterTXID);
+              res.send({
+                "current time": new Date().toISOString(),
+                  "message": "Published Successfully",
+                  "reference txid": referenceTxO.txid
+                });
+              })
+          })
+      } else {
+        // single
+        const delay = ms => new Promise(res => setTimeout(res, ms));
+          await delay(2000);
+          if (i > 0) {
+            let previousTransactionOutput = bylineWriterTX
+            sendFloDataToChain(signed64, pubKey, wif, previousTransactionOutput).then(referenceTxO => {
+              bylineWriterTXID.push(referenceTxO.txid)
+              bylineWriterTX.push(referenceTxO);
+            })
+          } else {
+          sendFloDataToChain(signed64, pubKey, wif).then(referenceTxO => {
+            bylineWriterTXID.push(referenceTxO.txid)
+            bylineWriterTX.push(referenceTxO);
+          })
+        }
+        
+      }
+      const delay = ms => new Promise(res => setTimeout(res, ms));
+      await delay(2000);
+
+    } else {
+      let referenceRecordStatus = `OIPRef:${bylineWriterRecord.results[0].meta.txid} already exists for bylineWriter: ${formattedBylineWriterData[0].basic.name} ${formattedBylineWriterData[0].person.surname}, a new record will not be published...`
+      referencedRecords.push(referenceRecordStatus)
+      console.log(referenceRecordStatus)
+      bylineWriterOIPRef = bylineWriterRecord.results[0].meta.txid;
+      // console.log('OIPRef:',bylineWriterRecord.results[0].meta.txid,'already exists for bylineWriter:', formattedBylineWriterData[0].basic.name,formattedBylineWriterData[0].person.surname,' a new record will not be published...');
+
+      // console.log('a record for this bylineAuthor found in index, using OIPRef:', bylineWriterOIPRef);
+      bylineWriterTXID.push(bylineWriterOIPRef)
+    }
+
+  // then we check if there are any embedded videos and if so we loop thru them and create a new record for each one
   // then we publish the text data record
   // then we publish the article data with the text data record and embedded video records as references
+  
+  
   let embeddedVideoTXIDs = [];
 
   if (embeddedVideoQty > 0) {
     let embeddedVideoTXs = [];
     for (let i = 0; i < embeddedVideoQty; i++) {
+      embeddedVideoRecord = await searchForVideoRecords(formattedEmbeddedVideos, i);
+      if(embeddedVideoRecord.count === 0){
+        console.log('embedded video not found in index, publishing a record for:', formattedEmbeddedVideos[i].title);
+      
       const basic = formattedEmbeddedVideos[i].basic
       const video = formattedEmbeddedVideos[i].video
       const youtube = formattedEmbeddedVideos[i].youtube
@@ -837,27 +1250,22 @@ app.post('/api/v1/publishRecord', async (req, res) => {
         sendFloDataToChain(signed64, pubKey, wif, previousTransactionOutput).then(referenceTxO => {
           embeddedVideoTXIDs.push(referenceTxO.txid)
           embeddedVideoTXs.push(referenceTxO);
-        // console.log('video reference records', embeddedVideoTXIDs);
-        // res.send({
-        //         "current time": new Date().toISOString(),
-        //           "message": "Published Successfully",
-        //           "record txid": referenceTxO.txid
-        // });
         })
       } else {
       sendFloDataToChain(signed64, pubKey, wif).then(referenceTxO => {
         embeddedVideoTXIDs.push(referenceTxO.txid)
         embeddedVideoTXs.push(referenceTxO);
-        // console.log('video reference record', referenceTxO.txid);
-        // res.send({
-        //         "current time": new Date().toISOString(),
-        //           "message": "Published Successfully",
-        //           "record txid": referenceTxO.txid
-        // });
       })
     }
     
   }
+}else{
+  let referenceRecordStatus = `OIPRef:${embeddedVideoRecord.results[0].meta.txid} exactly matches embedded video ${i}, titled: ${formattedEmbeddedVideos[i].basic.name}, a new record will not be published...`
+  referencedRecords.push(referenceRecordStatus)
+  console.log(referenceRecordStatus)
+  // console.log('OIPRef:',embeddedVideoRecord.results[0].meta.txid,'exactly matches embedded video', i,'titled:', formattedEmbeddedVideos[i].basic.name,', a new record will not be published...');
+  embeddedVideoTXIDs.push(embeddedVideoRecord.results[0].meta.txid);
+}
   }
   } else {
     // no embedded videos
@@ -872,6 +1280,8 @@ app.post('/api/v1/publishRecord', async (req, res) => {
 
   if (embeddedImageQty > 0) {
     for (let i = 0; i < embeddedImageQty; i++) {
+      embeddedImageRecord = await searchForImageRecords(formattedEmbeddedImages, i);
+      if(embeddedImageRecord.count === 0){
       const image = formattedEmbeddedImages[i].image
       const basic = formattedEmbeddedImages[i].basic   
       const payload = [basic, image];
@@ -962,6 +1372,17 @@ app.post('/api/v1/publishRecord', async (req, res) => {
     }
     
     }
+
+  }else{
+    let referenceRecordStatus = `OIPRef:${embeddedImageRecord.results[0].meta.txid} exactly matches image number ${i} with IPFS checksum: ${formattedEmbeddedImages[i].image.imageAddress}, a new record will not be published...`
+    // let referenceRecordStatus = `OIPRef: ${embeddedTextRecord.results[0].meta.txid} exactly matches embedded text article, with IPFS checksum: ${formattedTextData[0].text.textAddress}, a new record will not be published...`
+  referencedRecords.push(referenceRecordStatus)
+  console.log(referenceRecordStatus)
+    // console.log('OIPRef:',embeddedImageRecord.results[0].meta.txid,'exactly matches image number',i,', with IPFS checksum:', formattedEmbeddedImages[i].image.imageAddress,', a new record will not be published...');
+
+    // console.log('a record matching image',i, 'found in index, using OIPRef:', embeddedImageRecord.results[0].meta.txid);
+    embeddedImageTXIDs.push(embeddedImageRecord.results[0].meta.txid);
+  }
   }
   } else {
     // no embedded videos
@@ -972,6 +1393,8 @@ app.post('/api/v1/publishRecord', async (req, res) => {
   // next we publish the text data record
   let embeddedTextTX = [];
   let embeddedTextTXID = [];
+  embeddedTextRecord = await searchForTextRecord(formattedTextData);
+  if(embeddedTextRecord.count === 0){
   let text = formattedTextData[0].text
   let basic = formattedTextData[0].basic
   let payload = [basic, text]; 
@@ -1034,15 +1457,29 @@ app.post('/api/v1/publishRecord', async (req, res) => {
       embeddedTextTX.push(referenceTxO);
     })
   }
+  }else{
+  // console.log('a record matching this text record found in index, using OIPRef:', embeddedTextRecord.results[0].meta.txid);
+  let referenceRecordStatus = `OIPRef:${embeddedTextRecord.results[0].meta.txid} exactly matches embedded text article, with IPFS checksum: ${formattedTextData[0].text.textAddress}, a new record will not be published...`
+  referencedRecords.push(referenceRecordStatus)
+  console.log(referenceRecordStatus)
+  // console.log('OIPRef:',embeddedTextRecord.results[0].meta.txid,'exactly matches embedded text article, with IPFS checksum:', formattedTextData[0].text.textAddress,', a new record will not be published...');
+  embeddedTextTXID.push(embeddedTextRecord.results[0].meta.txid);
+  }
   await delay(2000);
 
   // and now we publish the article with the reference to the video and text
   let article = formattedArticleData[0].article
+  let articleTXID = [];
+  existingArticleRecord = await searchForArticleRecord(formattedArticleData, embeddedVideoTXIDs, embeddedTextTXID[0], embeddedImageTXIDs, bylineWriterTXID[0]);
+  if(existingArticleRecord.count === 0){
   basic = formattedArticleData[0].basic
+  article.bylineWriter = bylineWriterTXID[0];
+  
   article.videoList = embeddedVideoTXIDs
   article.articleText = embeddedTextTXID[0]
   article.imageList = embeddedImageTXIDs
-  let embeddedArticleTXID = [];
+  console.log('basic', basic, 'article', article)
+  
 
   // next we publish the text data record  
   payload = [basic, article];  
@@ -1090,8 +1527,8 @@ app.post('/api/v1/publishRecord', async (req, res) => {
     sendFloDataToChain(floData1, pubKey, wif).then(referenceTxO => {
       sendRestOfTXsOfMP(id, pubKey, wif, mpx, referenceTxO).then(recordTxidArray => {
         // console.log('recordTxidArray', recordTxidArray);
-        embeddedArticleTXID.push(referenceTxO.txid);
-        console.log('article reference record', embeddedArticleTXID);
+        articleTXID.push(referenceTxO.txid);
+        console.log('article reference record', articleTXID);
         res.send({
           "current time": new Date().toISOString(),
           "message": "Published Successfully",
@@ -1105,7 +1542,7 @@ app.post('/api/v1/publishRecord', async (req, res) => {
     await delay(2000);
 
     sendFloDataToChain(signed64, pubKey, wif).then(referenceTxO => {
-      embeddedArticleTXID.push(referenceTxO.txid)
+      articleTXID.push(referenceTxO.txid)
       console.log('article reference record', referenceTxO.txid);
       res.send({
         "current time": new Date().toISOString(),
@@ -1113,6 +1550,22 @@ app.post('/api/v1/publishRecord', async (req, res) => {
         "article record txid": referenceTxO.txid
       });
     })
+  }
+  }else{
+    let referenceRecordStatus = `OIPRef:${existingArticleRecord.results[0].meta.txid} exactly matches this article record, with title: ${formattedArticleData[0].basic.name}, a new record will not be published...`
+  // referencedRecords.push(referenceRecordStatus)
+  console.log(referenceRecordStatus)
+    // console.log('OIPRef:',existingArticleRecord.results[0].meta.txid,'exactly matches this article record, with title:', formattedArticleData[0].basic.name,', a new record will not be published...');
+
+    // console.log('a record exactly matching this article record was found in index, its OIPRef is:', existingArticleRecord.results[0].meta.txid);
+    
+    articleTXID.push(existingArticleRecord.results[0].meta.txid);
+    res.send({
+      "current time": new Date().toISOString(),
+      "message": referenceRecordStatus,
+      "record txid": articleTXID,
+      "referencedRecords": referencedRecords
+    });
   }
 }) 
 
