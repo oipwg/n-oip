@@ -1,12 +1,12 @@
 {
-  "name": "oip-api",
-  "version": "1.0.0",
+  "name": "oip-publishing-api",
+  "version": "1.1.0",
   "description": "publishing api for Open Index Protocol",
-  "main": "app.js",
+  "main": "publishingApi.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": " ./node_modules/fcoin/bin/fcoin --index-tx=true --index-address=true --log-level=debug --no-auth=false & nodemon app.js",
-    "api": " ./node_modules/fcoin/bin/fcoin --index-tx=true --index-address=true --log-level=error --no-auth=false & nodemon app.js"
+    "liteNode": " ./node_modules/fcoin/bin/fcoin --prefix ~/.fcoin_litenode --spv --http-port=7313 --node-port=31313 --prune=true --index-tx=false --index-address=false --log-level=error --no-auth=false & nodemon publishingApi.js",
+    "fullNode": " ./node_modules/fcoin/bin/fcoin --prefix ~/.fcoin_fullnode --http-port=13230 --node-port=31314 --allow-sponsored-publishing=true --index-tx=true --index-address=true --log-level=error --no-auth=false & nodemon publishingApi.js"
   },
   "author": "",
   "license": "ISC",
@@ -32,6 +32,7 @@
     "node-fetch": "^2.6.7",
     "nodemon": "^2.0.15",
     "oip-protobufjs": "github:oipwg/oip-protobufjs",
+    "require-text": "^0.0.1",
     "wif": "^2.0.6"
   }
 }
