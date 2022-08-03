@@ -849,15 +849,15 @@ async function makeFloDataJSON(payload, templates){
 }
 
 // make a raw TX and send it to the blockchain
-async function makeAndSendRawTransaction(signedP64floData, wif, selfPublish, prevTxO) {
-  if (selfPublish === true) {
+async function makeAndSendRawTransaction(signedP64floData, wif, allowSponsoredPublishing, prevTxO) {
+  if (allowSponsoredPublishing === true) {
     network = 'mainnet';
   let walletRPC = new RPCWallet({
     publicAddress: myPubKey,
     wif,
     network,
     rpc: {
-      port: 7315,
+      port: walletClientPort,
       host: '127.0.0.1',
       username: 'x',
       password: apiKey   
@@ -875,7 +875,7 @@ async function makeAndSendRawTransaction(signedP64floData, wif, selfPublish, pre
 }
 
 // publish signed P64floData to the blockchain, possibly as multipart
-async function publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO){
+async function publishSignedOIPRecord(signedP64floData, wif, allowSponsoredPublishing, recordTxO){
   if (signedP64floData.length > 1040) {
     // mpx
     // console.log('signed64 is too long, splitting into a multi-part message');
@@ -891,7 +891,7 @@ async function publishSignedOIPRecord(signedP64floData, wif, selfPublish, record
     mpx[0].setSignature(mp1_sig);
     const signedp64_mp1_forPublishing = `${mpx[0].prefix}(${mpx[0].part},${mpx[0].max},${mpx[0].address},,${mpx[0].signature}):${mpx[0].data}`;
     prevTxO = undefined
-    firstTX = await makeAndSendRawTransaction(signedp64_mp1_forPublishing, wif, selfPublish);
+    firstTX = await makeAndSendRawTransaction(signedp64_mp1_forPublishing, wif, allowSponsoredPublishing);
     let mpTxIDArray = [];
     let mpTxOArray = [];
     mpTxIDArray.push(firstTX.TxID);
@@ -901,7 +901,8 @@ async function publishSignedOIPRecord(signedP64floData, wif, selfPublish, record
     if (firstTX) {
       // let mp=1;
       // console.log(`MP ${mp} of ${mpx.length}`,mpTxIDArray)
-
+      const delay = ms => new Promise(res => setTimeout(res, ms));
+      await delay(2000);
       for (let i = 1; i < mpx.length; i++) {
         mpx[i].setReference(firstTX.TxID);
         mpx[i].setAddress(myPubKey);
@@ -909,11 +910,10 @@ async function publishSignedOIPRecord(signedP64floData, wif, selfPublish, record
         mpx[i].setSignature(sig);
         // console.log('mpx[i] sig:', sig);
         // console.log('mpTxOArray:', mpTxOArray);
-        let result = await makeAndSendRawTransaction(`${mpx[i].prefix}(${mpx[i].part},${mpx[i].max},${mpx[i].address},${mpx[i].reference},${mpx[i].signature}):${mpx[i].data}`, wif, selfPublish)
+        let result = await makeAndSendRawTransaction(`${mpx[i].prefix}(${mpx[i].part},${mpx[i].max},${mpx[i].address},${mpx[i].reference},${mpx[i].signature}):${mpx[i].data}`, wif, allowSponsoredPublishing)
         mpTxIDArray.push(result.TxID);
         mpTxOArray.push(result.TxO);
         lastTxO = result.TxO;
-        const delay = ms => new Promise(res => setTimeout(res, ms));
         await delay(2000);
         const recordTxidArray = await Promise.all([sig, result]).then((values) => {
           return (mpTxIDArray, mpTxOArray, lastTxO)
@@ -924,7 +924,7 @@ async function publishSignedOIPRecord(signedP64floData, wif, selfPublish, record
   } else {
     // single
     // console.log('signedP64floData is not too long, sending as a single message');
-    let record = await makeAndSendRawTransaction(signedP64floData, wif, selfPublish)
+    let record = await makeAndSendRawTransaction(signedP64floData, wif, allowSponsoredPublishing)
     return ([{recordTxID: record.TxID, TxO: record.TxO}])
   }
 }
@@ -1131,12 +1131,12 @@ app.post('/api/v1/sendTxToPublishingSponsor', async (req, res) => {
         selectwallet(publishing_wallet_id, myPubKey, wif).then(wallet => { //console.log('wallet:', wallet)
           walletpassphrase(publishing_wallet_passphrase).then(resX => {//console.log('resX:', resX)
             getwalletinfo().then(walletinfo => { //console.log('walletinfo:', walletinfo)
-              makeAndSendRawTransaction(signedP64floData, wif, selfPublish).then(result => { console.log("results:", result.TxID, result.TxO);
+              makeAndSendRawTransaction(signedP64floData, wif, allowSponsoredPublishing).then(result => { console.log("results:", result.TxID, result.TxO);
                 res.send({
                   "currentTime": new Date().toISOString(),
                   "message": "Record Sent Successfully",
-                  "TxID": txid,
-                  "TxO": result.output, 
+                  "TxID": result.TxID,
+                  "TxO": result.TxO, 
                 });
               });
             });
