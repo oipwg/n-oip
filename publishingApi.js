@@ -523,7 +523,8 @@ async function searchForBylineWriter(BylineWriter) {
     // if record is undefined, bylineWriter is not found
     if (record === undefined) {
       // console.log('no results')
-      return null
+      // return null
+      return record.data
     } else {
     // record = await axios.get(`https://api.oip.io/oip/o5/record/search?q=record.details.tmpl_20AD45E7.name:${BylineWriterName}%20AND%20record.details.tmpl_B6E9AF9B.surname:${BylineWriterSurname}`);
     // console.log('record', record.data)
@@ -580,8 +581,8 @@ async function searchForVideoRecords(formattedEmbeddedVideos, i) {
   try {
     record = await axios.get(parameterString);
     if (record.data.count === 0 || record === undefined) {
-      return null
-      // return record.data
+      // return null
+      return record.data
     } else {
     // console.log('record found in index matching video ', i)
     // console.log('record', i, record.data.results[0].record.details)
@@ -618,7 +619,8 @@ async function searchForImageRecords(formattedEmbeddedImages, i) {
   try {
     record = await axios.get(parameterString);
     if (record.data.results === 0) {
-      return null
+      // return null
+      return record.data
     } else {
     return record.data
     }
@@ -665,7 +667,8 @@ async function searchForTextRecord(formattedTextData) {
   try {
     record = await axios.get(parameterString);
     if (record.data.results === 0) {
-      return null
+      // return null
+      return record.data
     } else {
     return record.data
     }
@@ -766,7 +769,8 @@ async function searchForArticleRecord(formattedArticleData, oipRefs, formattedEm
   try {
     record = await axios.get(parameterString);
     if (record.data.results === 0) {
-      return null
+      // return null
+      return record.data
     } else {
     return record.data
     }
