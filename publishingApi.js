@@ -415,6 +415,9 @@ async function formatRecord(recordData){
         'imageAddress': '',
         'thumbnailAddress': '',
         'network': ''
+      },
+      'url': {
+        'url': ''
       }
     }
 
@@ -427,6 +430,7 @@ async function formatRecord(recordData){
     image.image.imageAddress = record.embeddedImages[i].imageAddress || '';
     image.image.thumbnailAddress = record.embeddedImages[i].thumbnailAddress || '';
     image.image.network = (record.embeddedImages[i].network === "Network_IPFS") ? 1 : null;
+    image.url.url = record.embeddedImages[i].url || '';
 
     embeddedImages.push(image);
     embeddedImageAddresses.push(record.embeddedImages[i].imageAddress);
@@ -584,8 +588,6 @@ async function searchForVideoRecords(formattedEmbeddedVideos, i) {
       // return null
       return record.data
     } else {
-    // console.log('record found in index matching video ', i)
-    // console.log('record', i, record.data.results[0].record.details)
     return record.data
     }
   } catch (error) {
@@ -598,7 +600,7 @@ async function searchForImageRecords(formattedEmbeddedImages, i) {
   let thumbnailAddress = formattedEmbeddedImages[i].image.thumbnailAddress || "*";
   let imageAddress = formattedEmbeddedImages[i].image.imageAddress || "*";
   let network = (formattedEmbeddedImages[i].image.network === "Network_IPFS") ? (1) : ("*");
-  
+  let url = encodeURIComponent(formattedEmbeddedImages[i].image.url) || "*";
   let record
   
   let parameterString = "https://api.oip.io/oip/o5/record/search?q="
@@ -613,6 +615,9 @@ async function searchForImageRecords(formattedEmbeddedImages, i) {
     }
     if (network !== "*") {
       parameterString += `record.details.tmpl_1AC73C98.network:${network}%20AND%20`
+    }
+    if (url !== "*") {
+      parameterString += `record.details.tmpl_74C584FC.url:${url}%20AND%20`
     }
     parameterString = parameterString.slice(0, -9)
     // console.log('parameterString for image record search',i, parameterString)
@@ -820,7 +825,7 @@ async function sendTxToPublishingSponsor(signedP64floData){
     console.log("error");
   }
   );
-  return result.data;
+  return result.data.txo;
 };
 
 function makeRecord(data) {
@@ -832,7 +837,6 @@ function makeRecord(data) {
 }
 
 async function makeFloDataJSON(payload, templates){
-  // console.log("prepRecordTESTING:", payload, templates)
   let data = [];
   for (let i = 0; i < templates.length; i++) {
     let templateType = templates[i];
@@ -847,14 +851,13 @@ async function makeFloDataJSON(payload, templates){
     }
     data.push(template);
   }
-  // console.log("prepRecordTESTING data:", data);
   floDataJSON = makeRecord(data);
   return floDataJSON;
 }
 
 // make a raw TX and send it to the blockchain
-async function makeAndSendRawTransaction(signedP64floData, wif, allowSponsoredPublishing, prevTxO) {
-  if (allowSponsoredPublishing === true) {
+async function makeAndSendRawTransaction(signedP64floData, wif, selfPublish, prevTxO) {
+  if (selfPublish === true) {
     network = 'mainnet';
   let walletRPC = new RPCWallet({
     publicAddress: myPubKey,
@@ -868,18 +871,26 @@ async function makeAndSendRawTransaction(signedP64floData, wif, allowSponsoredPu
     }
   })
   const result = await walletRPC.prepSignedTXforChain(signedP64floData, prevTxO);
-  TxO = result.output;
-  TxID = await client.execute('sendrawtransaction', [result.signedTxHex]);
-    return ({"TxID": TxID, "TxO": result.output})
+  
+  txid = await client.execute('sendrawtransaction', [result.signedTxHex]);
+
+  let txo = {
+    txid: txid,
+    amount: result.transactionOutput.amount,
+    address: result.transactionOutput.address,
+    vout: 0
+  };
+    return txo;
   }
   else {
-    const result = await sendTxToPublishingSponsor(signedP64floData)
-    return ({"TxID": result.TxID, "TxO": result.TxO})
+    const result = await sendTxToPublishingSponsor(signedP64floData, prevTxO)
+    return result;
 }
 }
 
 // publish signed P64floData to the blockchain, possibly as multipart
-async function publishSignedOIPRecord(signedP64floData, wif, allowSponsoredPublishing, recordTxO){
+async function publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO){
+  
   if (signedP64floData.length > 1040) {
     // mpx
     // console.log('signed64 is too long, splitting into a multi-part message');
@@ -894,12 +905,12 @@ async function publishSignedOIPRecord(signedP64floData, wif, allowSponsoredPubli
     
     mpx[0].setSignature(mp1_sig);
     const signedp64_mp1_forPublishing = `${mpx[0].prefix}(${mpx[0].part},${mpx[0].max},${mpx[0].address},,${mpx[0].signature}):${mpx[0].data}`;
-    prevTxO = undefined
-    firstTX = await makeAndSendRawTransaction(signedp64_mp1_forPublishing, wif, allowSponsoredPublishing);
+    prevTxO = (recordTxO.length == 0) ? undefined : recordTxO[recordTxO.length-1];
+    firstTX = await makeAndSendRawTransaction(signedp64_mp1_forPublishing, wif, selfPublish, prevTxO);
     let mpTxIDArray = [];
     let mpTxOArray = [];
-    mpTxIDArray.push(firstTX.TxID);
-    mpTxOArray.push(firstTX.TxO);
+    mpTxIDArray.push(firstTX.txid);
+    mpTxOArray.push(firstTX);
 
     // if first transaction has successfully been sent, start the loop
     if (firstTX) {
@@ -908,28 +919,30 @@ async function publishSignedOIPRecord(signedP64floData, wif, allowSponsoredPubli
       const delay = ms => new Promise(res => setTimeout(res, ms));
       await delay(2000);
       for (let i = 1; i < mpx.length; i++) {
-        mpx[i].setReference(firstTX.TxID);
+        mpx[i].setReference(firstTX.txid);
         mpx[i].setAddress(myPubKey);
         let sig = await signMessage(wif, myPubKey, mpx[i].getSignatureData());    
         mpx[i].setSignature(sig);
-        // console.log('mpx[i] sig:', sig);
-        // console.log('mpTxOArray:', mpTxOArray);
-        let result = await makeAndSendRawTransaction(`${mpx[i].prefix}(${mpx[i].part},${mpx[i].max},${mpx[i].address},${mpx[i].reference},${mpx[i].signature}):${mpx[i].data}`, wif, allowSponsoredPublishing)
-        mpTxIDArray.push(result.TxID);
-        mpTxOArray.push(result.TxO);
-        lastTxO = result.TxO;
-        await delay(2000);
+        let result = await makeAndSendRawTransaction(`${mpx[i].prefix}(${mpx[i].part},${mpx[i].max},${mpx[i].address},${mpx[i].reference},${mpx[i].signature}):${mpx[i].data}`, wif, selfPublish, mpTxOArray[i-1]);
+        txo = result;
+        mpTxIDArray.push(result.txid);
+        mpTxOArray.push(result);
+        
         const recordTxidArray = await Promise.all([sig, result]).then((values) => {
-          return (mpTxIDArray, mpTxOArray, lastTxO)
+          return (mpTxIDArray, mpTxOArray, txo)
         });
       }
     }
-    return ([{recordTxID: firstTX.TxID, TxO: lastTxO, recordTxidArray: mpTxIDArray}]);
+
+    return ({txo, mpTxIDArray});
   } else {
     // single
     // console.log('signedP64floData is not too long, sending as a single message');
-    let record = await makeAndSendRawTransaction(signedP64floData, wif, allowSponsoredPublishing)
-    return ([{recordTxID: record.TxID, TxO: record.TxO}])
+    prevTxO = (recordTxO.length == 0) ? undefined : recordTxO[recordTxO.length-1];
+
+    let mpTxIDArray = []
+    let txo = await makeAndSendRawTransaction(signedP64floData, wif, selfPublish, prevTxO)
+    return ({txo, mpTxIDArray})
   }
 }
 
@@ -1017,12 +1030,9 @@ app.post('/api/v1/createWallet', (req, res) => {
           "message": wallet.toString()
         });
       } else {
-        // createAddress(id, account).then(address => {
         getAccountInfo(id, account).then(account => {
           getMasterHDKey(id).then(masterHDKey => {
-            // getwif(id, address.address).then(wif => {
             getwif(id, account.receiveAddress).then(wif => {
-              // selectwallet(id, address.address, wif).then(null1 => {
               selectwallet(id, account.receiveAddress, wif).then(null1 => {
                 encryptwallet(passphrase).then(null2 => {
                   getwalletinfo(id).then(walletinfo => {
@@ -1049,23 +1059,6 @@ app.post('/api/v1/createWallet', (req, res) => {
     });
   }
 });
-
-// use this endpoint to generate a receiving address
-  // app.post('/api/v1/generateReceivingAddress', (req, res) => {
-  //   const id = req.body.id;
-  //   // const options = req.body.options;
-  //   const account = req.body.account;
-  //   // console.log("id:",id, "account:", account);
-  //   createAddress(id, account).then(result => {
-  //     res.send({
-  //       "currentTime": new Date().toISOString(),
-  //       "message": "All Systems Operational",
-  //       "send to this address": result.address,
-  //       "info": result
-  //     });
-  //   }); 
-  //   console.log("handling RPC call: createReceivingAddress");
-  // });
 
 // use this endpoint to get wallet info including balance
 app.get('/api/v1/getWalletInfo', (req, res) => {
@@ -1112,14 +1105,10 @@ app.get('/api/v1/getWalletTxHistory', (req, res) => {
       res.send({
         "currentTime": new Date().toISOString(),
         "message": "All Systems Operational",
-        // "wallet id": id,
-        // "wallet balance": (result.balance.confirmed/100000000).toFixed(8),
         "info": result
       });
     });
   })
-
-  
   console.log("handling RPC call: getWalletInfo");
 });
 
@@ -1130,17 +1119,16 @@ app.post('/api/v1/sendTxToPublishingSponsor', async (req, res) => {
     const account = 'default';
     let signedP64floData = publisherData.signedP64floData;
     try{
-      // const wif = (myPrivKey == "") ? await getwif(publishing_wallet_id, myPubKey, publishing_wallet_passphrase) : myPrivKey;
       const wif = myPrivKey || await getwif(publishing_wallet_id, myPubKey, publishing_wallet_passphrase);
         selectwallet(publishing_wallet_id, myPubKey, wif).then(wallet => { //console.log('wallet:', wallet)
           walletpassphrase(publishing_wallet_passphrase).then(resX => {//console.log('resX:', resX)
             getwalletinfo().then(walletinfo => { //console.log('walletinfo:', walletinfo)
-              makeAndSendRawTransaction(signedP64floData, wif, allowSponsoredPublishing).then(result => { console.log("results:", result.TxID, result.TxO);
+              makeAndSendRawTransaction(signedP64floData, wif, allowSponsoredPublishing).then(result => { console.log("sendTxToPublishingSponsor results:", result);
                 res.send({
                   "currentTime": new Date().toISOString(),
                   "message": "Record Sent Successfully",
-                  "TxID": result.TxID,
-                  "TxO": result.TxO, 
+                  "txid": result.txid,
+                  "txo": result, 
                 });
               });
             });
@@ -1249,9 +1237,10 @@ app.post('/api/v1/publishOIPRecord', async (req, res) => {
         let templates = ['basic','person'];
         makeFloDataJSON(payload, templates).then(floDataJSON => {
           getSignedP64FloData(floDataJSON, wif).then(signedP64floData => {
-            publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { // console.log('bylineWriter record:', result);
-              bylineWriterTXID.push(result[0].recordTxID)
-              recordTxO.push(result[0].TxO);
+            publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { //console.log('bylineWriter record:', result);
+              txid = (result.mpTxIDArray.length == 0) ? (result.txo.txid) : (result.mpTxIDArray[0]);
+              bylineWriterTXID.push(txid)
+              recordTxO.push(result.txo);
             });
           })
         })
@@ -1282,10 +1271,13 @@ app.post('/api/v1/publishOIPRecord', async (req, res) => {
             const payload = [basic, video, youtube];
             let templates = ['basic','video','youtube'];
             makeFloDataJSON(payload, templates).then(floDataJSON => {
-              getSignedP64FloData(floDataJSON, wif).then(signedP64floData => {
-                publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { //console.log('video record result:', result);
-                  embeddedVideoTXIDs.push(result[0].recordTxID)
-                  recordTxO.push(result[0].TxO);
+              delay(2000 * (i)).then(waiting => { console.log(`delay for video ${i}:`, (2000 * (i)))
+                getSignedP64FloData(floDataJSON, wif).then(signedP64floData => { //console.log('status of recordTxO before trying to make video tx number', i, recordTxO)
+                  publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { //console.log('video record result number', i, result);
+                    txid = (result.mpTxIDArray.length == 0) ? (result.txo.txid) : (result.mpTxIDArray[0]);
+                    embeddedVideoTXIDs.push(txid)
+                    recordTxO.push(result.txo);
+                  });
                 });
               });
             });
@@ -1311,19 +1303,24 @@ app.post('/api/v1/publishOIPRecord', async (req, res) => {
       for (let i = 0; i < embeddedImageQty; i++) {
         searchForImageRecords(formattedEmbeddedImages, i).then(prevPublishedImageRecords => {
         if(prevPublishedImageRecords.count === 0){
-          let referenceRecordStatus = `embedded image not found in index, publishing a new record for: ${formattedEmbeddedImages[i].basic.name}`;
+          // console.log('formattedArticleData', formattedArticleData);
+          let referenceRecordStatus = `embedded image not found in index, publishing a new record for: ${formattedArticleData[0].article.imageCaptionList[i]}`;
           referencedRecords.push(referenceRecordStatus);
           const basic = formattedEmbeddedImages[i].basic
           const image = formattedEmbeddedImages[i].image
-          const payload = [basic, image];
-          let templates = ['basic','image'];
+          const url = formattedEmbeddedImages[i].url
+          const payload = [basic, image, url];
+          let templates = ['basic','image', 'url'];
           makeFloDataJSON(payload, templates).then(floDataJSON => {
-            getSignedP64FloData(floDataJSON, wif).then(signedP64floData => {
-              publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { //console.log('image record result:', result);
-                embeddedImageTXIDs.push(result[0].recordTxID)
-                recordTxO.push(result[0].TxO);
+            delay(2000 * (i)).then(waiting => { console.log(`delay for image ${i}:`, (2000 * (i)))
+              getSignedP64FloData(floDataJSON, wif).then(signedP64floData => {
+                publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { //console.log('image record result:', result);
+                  txid = (result.mpTxIDArray.length == 0) ? (result.txo.txid) : (result.mpTxIDArray[0]);
+                  embeddedImageTXIDs.push(txid)
+                  recordTxO.push(result.txo);
               });
             })
+          })
           })  
         } else {
           let referenceRecordStatus = `OIPRef:${prevPublishedImageRecords.results[0].meta.txid} already exists for image: "${formattedArticleData[0].article.imageCaptionList[i]}"`;
@@ -1351,8 +1348,9 @@ app.post('/api/v1/publishOIPRecord', async (req, res) => {
         makeFloDataJSON(payload, templates).then(floDataJSON => {
           getSignedP64FloData(floDataJSON, wif).then(signedP64floData => {
             publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { // console.log('text data record result:', result);
-            embeddedTextTXID = result[0].recordTxID;
-            recordTxO.push(result[0].TxO);
+              txid = (result.mpTxIDArray.length == 0) ? (result.txo.txid) : (result.mpTxIDArray[0]);
+              embeddedTextTXID = txid;
+              recordTxO.push(result.txo);
             });
           })
         })
@@ -1368,7 +1366,8 @@ app.post('/api/v1/publishOIPRecord', async (req, res) => {
     // next we publish the article data record
     let article = formattedArticleData[0].article;
     let articleTXID = [];
-    const oipRefs = [{bylineWriterTXID: bylineWriterTXID[0],embeddedVideoTXIDs:embeddedVideoTXIDs, embeddedImageTXIDs:embeddedImageTXIDs, embeddedTextTXID:embeddedTextTXID}];
+    const oipRefs = [{bylineWriterTXID: bylineWriterTXID,embeddedVideoTXIDs:embeddedVideoTXIDs, embeddedImageTXIDs:embeddedImageTXIDs, embeddedTextTXID:embeddedTextTXID}];
+    console.log('oipRefs:', oipRefs);
     searchForArticleRecord(formattedArticleData, oipRefs, formattedEmbeddedImages, formattedEmbeddedVideos, formattedTextData).then(prevPublishedArticleRecords => {
       if(prevPublishedArticleRecords.count === 0){
         let referenceRecordStatus = `article not found in index, publishing a new record for: ${formattedArticleData[0].basic.name}`;
@@ -1383,9 +1382,10 @@ app.post('/api/v1/publishOIPRecord', async (req, res) => {
         let templates = ['basic','article','url'];
         makeFloDataJSON(payload, templates).then(floDataJSON => {
           getSignedP64FloData(floDataJSON, wif).then(signedP64floData => {
-            publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { // console.log('article data record result:', result);
-            articleTxID = result[0].recordTxID;
-              recordTxO.push(result[0].TxO);
+            publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { //console.log('article data record result:', result);
+              txid = (result.mpTxIDArray.length == 0) ? (result.txo.txid) : (result.mpTxIDArray[0]);
+              recordTxO.push(result.txo);
+              articleTxID = txid;
               console.log(referencedRecords);
               console.log(`Record published successfully for "${formattedArticleData[0].basic.name}," TXID: ${articleTxID}`);
               res.send({
@@ -1401,8 +1401,7 @@ app.post('/api/v1/publishOIPRecord', async (req, res) => {
       else {
         let referenceRecordStatus = `OIPRef:${prevPublishedArticleRecords.results[0].meta.txid} already exists for article: "${formattedArticleData[0].basic.name}," not publishing anything...`
         referencedRecords.push(referenceRecordStatus)
-          console.log(referenceRecordStatus)
-
+        console.log(referenceRecordStatus)
         articleTXID = prevPublishedArticleRecords.results[0].meta.txid;
         res.send({
           "current time": new Date().toISOString(),
@@ -1414,7 +1413,6 @@ app.post('/api/v1/publishOIPRecord', async (req, res) => {
     }).catch(err => {
       console.log('Error searching for article record', err);
     })
-
   } else {
     res.send({
       "current time": new Date().toISOString(),
@@ -1504,7 +1502,6 @@ app.get('/api/v1/getExpandedRecord/:recordID', async (req, res) => {
         "record": mainRecord.results
     });
   } catch (e) {
-    // console.log('error', e);
     if (e) {
       res.send({
         "currentTime": new Date().toISOString(),
