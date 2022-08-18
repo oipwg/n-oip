@@ -1,7 +1,6 @@
 const http = require('http');
 const https = require('https');
 const axios = require('axios');
-// const req = require('express/lib/request');
 const express = require('express');
 const SHA1 = require('crypto-js/sha1');
 const { response } = require('express');
@@ -9,7 +8,6 @@ const { on } = require('events');
 const {NodeClient, WalletClient} = require('./node_modules/@oipwg/fclient');
 const {RPCWallet} = require('js-oip/lib/modules/wallets');
 const { Modules } = require('js-oip');
-// const { compressTypes } = require('bcrypto/lib/pgp');
 const oipProto = require('oip-protobufjs');
 const buildOipDetails = oipProto.buildOipDetails;
 const recordProtoBuilder = oipProto.recordProtoBuilder;
@@ -49,6 +47,15 @@ const myPrivKey = (loadedScript == 'liteNode') ? liteNodePrivkey : fullNodePrivk
 
 const oipRecordsApiAddress = env.config().parsed.oipRecordsApiAddress || "https://api.oip.io/oip";
 const publishingSponsorAddress = env.config().parsed.publishingSponsorAddress || "";
+
+const oip_template_basic = env.config().parsed.basic || 'tmpl_20AD45E7';
+const oip_template_video = env.config().parsed.video || 'tmpl_9705FC0B';
+const oip_template_text = env.config().parsed.text || 'tmpl_769D8FBC';
+const oip_template_image = env.config().parsed.image || 'tmpl_1AC73C98';
+const oip_template_article = env.config().parsed.article || 'tmpl_D019F2E1';
+const oip_template_youtube = env.config().parsed.youtube || 'tmpl_834772F4';
+const oip_template_person = env.config().parsed.person || 'tmpl_B6E9AF9B';
+const oip_template_url = env.config().parsed.url || 'tmpl_74C584FC';
 
 app.use(express.json());
 
@@ -102,7 +109,6 @@ const walletClient = new WalletClient(walletClientOptions);
 // get blockchain info including sync status
 async function getinfo() {
   const result = await client.getInfo();
-  // console.log('result of getinfo:', result);
   return result
 }
 
@@ -126,7 +132,6 @@ async function createWallet(id, options) {
 // generate a receiving address
 async function createAddress(id, account){
   const result = await walletClient.createAddress(id, account);
-  // console.log(result);
   return result
 }
 
@@ -134,7 +139,6 @@ async function createAddress(id, account){
 async function walletpassphrase(passphrase, timeout) {
   timeout = 300;
   try{
-    // const result = await walletClient.walletpassphrase(passphrase, timeout);
     const result = await walletClient.execute('walletpassphrase', [passphrase, timeout]);
     return result
   } catch (err) {
@@ -152,7 +156,6 @@ async function selectwallet(id){
 async function encryptwallet(passphrase, id) {
   const wallet = walletClient.wallet(id);
   const result = await walletClient.execute('encryptwallet', [passphrase]);
-  // console.log('result of encryptwallet', result);
   return result
 }
 
@@ -200,7 +203,6 @@ async function getwalletinfo(id) {
 async function getAccountInfo(id, account) {
   const wallet = walletClient.wallet(id); 
   const result = await wallet.getAccount(account);
-  // console.log('result of getAccountInfo:', result);
   return result
 }
 
@@ -269,7 +271,48 @@ async function prepRegistration(pubKey, publisherName, fpub, wif) {
 }
 
 // to do, make a template descriptor lookup function
+async function lookupTemplateInfo(templateType) {
+  switch (templateType) {
+    case 'basic':
+      templateName = oip_template_basic;
+      break;
+    case 'video':
+      templateName = oip_template_video;
+      break;
+    case 'text':
+      templateName = oip_template_text;
+      break;
+    case 'image':
+      templateName = oip_template_image;
+      break;
+    case 'article':
+      templateName = oip_template_article;
+      break;
+    case 'youtube':
+      templateName = oip_template_youtube;
+      break;
+    case 'person':
+      templateName = oip_template_person;
+      break;
+    case 'url':
+      templateName = oip_template_url;
+      break;
+    default:
+      break;
+  }
+  templateID = templateName.replace('tmpl_', '');
+  let endpoint = `/o5/template/get/${templateID}`;
+  let url = oipRecordsApiAddress + endpoint;
+  templateData = await axios.get(url);
+  let descriptor = templateData.data.results[0].template.file_descriptor_set
+  let templateInfo = {
+    descriptor,
+    name: templateName
+  }
+  return templateInfo
+}
 
+// will be deprecated soon, has been replaced with lookupTemplateInfo
 // gets info about a specified template
 async function getTemplateInfo(templateType){
   switch (templateType) {
@@ -372,6 +415,7 @@ async function formatRecord(recordData){
   textData[0].basic.date = record.date || '';
   textData[0].url.name = record.title || '';
   textData[0].url.url = record.textURL || '';
+
   bylineWriterRecord = {
     'basic': {
       'name': '',
@@ -394,7 +438,6 @@ async function formatRecord(recordData){
       bylineWriterData[0].person.surname = bylineWriterArray[1];
       bylineWriterData[0].basic.language = (record.language === "Language_EN" ) ? 23 : null;
   }
-
 
   const embeddedImages = [];
   const embeddedImageAddresses = [];
@@ -488,7 +531,6 @@ async function formatRecord(recordData){
   articleData[0].basic.date = record.date || '';
   articleData[0].basic.avatar = record.avatar || null;
   articleData[0].basic.tagList = record.tagList || '';
-  // articleData[0].url.name = record.title || '';
   articleData[0].url.url = record.articleURL || '';
   articleData[0].article.bylineWriter = record.bylineWriter || '';
   articleData[0].article.bylineWritersTitle = record.bylineWritersTitle || '';
@@ -507,32 +549,28 @@ async function formatRecord(recordData){
   return response
 }
 
-async function searchForBylineWriter(BylineWriter) {
-  let BylineWriterName = BylineWriter.split(' ')[0];
-  let BylineWriterSurname = BylineWriter.split(' ')[1];
+// the next five functions search for various types of records by their specific content
+async function searchForBylineWriter(formattedBylineWriter) {
+  let BylineWriterName = formattedBylineWriter[0].basic.name;
+  let BylineWriterSurname = formattedBylineWriter[0].person.surname;
   let FirstOnlyOrBoth = (BylineWriterName && BylineWriterSurname) ? 'both' : 'first';
   let record
   
   try {
     switch(FirstOnlyOrBoth) {
       case 'first':
-        record = await axios.get(`https://api.oip.io/oip/o5/record/search?q=_exists_:record.details.tmpl_B6E9AF9B%20AND%20record.details.tmpl_20AD45E7.name:${BylineWriterName}`);
+        record = await axios.get(`${oipRecordsApiAddress}/o5/record/search?q=_exists_:record.details.tmpl_B6E9AF9B%20AND%20record.details.tmpl_20AD45E7.name:${BylineWriterName}`);
         break;
       case 'both':
-        record = await axios.get(`https://api.oip.io/oip/o5/record/search?q=record.details.tmpl_20AD45E7.name:${BylineWriterName}%20AND%20record.details.tmpl_B6E9AF9B.surname:${BylineWriterSurname}`);
+        record = await axios.get(`${oipRecordsApiAddress}/o5/record/search?q=record.details.tmpl_20AD45E7.name:${BylineWriterName}%20AND%20record.details.tmpl_B6E9AF9B.surname:${BylineWriterSurname}`);
         break;
       default:
     }
-    // console.log('record', record);
     // if record is undefined, bylineWriter is not found
-    if (record === undefined) {
-      // console.log('no results')
-      // return null
-      return record.data
+    if (record === undefined || record.data.total === 0) {
+      return (record.data)
     } else {
-    // record = await axios.get(`https://api.oip.io/oip/o5/record/search?q=record.details.tmpl_20AD45E7.name:${BylineWriterName}%20AND%20record.details.tmpl_B6E9AF9B.surname:${BylineWriterSurname}`);
-    // console.log('record', record.data)
-    return record.data
+    return (record.data)
   }} catch (error) {
     console.log('error', error)
   }
@@ -585,7 +623,6 @@ async function searchForVideoRecords(formattedEmbeddedVideos, i) {
   try {
     record = await axios.get(parameterString);
     if (record.data.count === 0 || record === undefined) {
-      // return null
       return record.data
     } else {
     return record.data
@@ -600,31 +637,30 @@ async function searchForImageRecords(formattedEmbeddedImages, i) {
   let thumbnailAddress = formattedEmbeddedImages[i].image.thumbnailAddress || "*";
   let imageAddress = formattedEmbeddedImages[i].image.imageAddress || "*";
   let network = (formattedEmbeddedImages[i].image.network === "Network_IPFS") ? (1) : ("*");
-  let url = encodeURIComponent(formattedEmbeddedImages[i].image.url) || "*";
+  let url = encodeURIComponent(formattedEmbeddedImages[i].url.url) || "*";
   let record
   
   let parameterString = "https://api.oip.io/oip/o5/record/search?q="
     if (filename !== "*") {
-      parameterString += `record.details.tmpl_1AC73C98.filename:${filename}%20AND%20`
+      parameterString += `record.details.tmpl_1AC73C98.filename:"${filename}"%20AND%20`
     }
     if (thumbnailAddress !== "*") {
-      parameterString += `record.details.tmpl_1AC73C98.thumbnailAddress:${thumbnailAddress}%20AND%20`
+      parameterString += `record.details.tmpl_1AC73C98.thumbnailAddress:"${thumbnailAddress}"%20AND%20`
     }
     if (imageAddress !== "*") {
-      parameterString += `record.details.tmpl_1AC73C98.imageAddress:${imageAddress}%20AND%20`
+      parameterString += `record.details.tmpl_1AC73C98.imageAddress:"${imageAddress}"%20AND%20`
     }
     if (network !== "*") {
-      parameterString += `record.details.tmpl_1AC73C98.network:${network}%20AND%20`
+      parameterString += `record.details.tmpl_1AC73C98.network:"${network}"%20AND%20`
     }
     if (url !== "*") {
-      parameterString += `record.details.tmpl_74C584FC.url:${url}%20AND%20`
+      parameterString += `record.details.tmpl_74C584FC.url:"${url}"%20AND%20`
     }
     parameterString = parameterString.slice(0, -9)
     // console.log('parameterString for image record search',i, parameterString)
   try {
     record = await axios.get(parameterString);
     if (record.data.results === 0) {
-      // return null
       return record.data
     } else {
     return record.data
@@ -672,7 +708,6 @@ async function searchForTextRecord(formattedTextData) {
   try {
     record = await axios.get(parameterString);
     if (record.data.results === 0) {
-      // return null
       return record.data
     } else {
     return record.data
@@ -682,49 +717,54 @@ async function searchForTextRecord(formattedTextData) {
   }
 }
 
-async function searchForArticleRecord(formattedArticleData, oipRefs, formattedEmbeddedImages, formattedEmbeddedVideos, formattedTextData) {
-  let name = encodeURIComponent(formattedArticleData[0].basic.name) || "*";
-  let description = encodeURIComponent(formattedArticleData[0].basic.description) || "*";
-  let bylineWritersTitle = encodeURIComponent(formattedArticleData[0].article.bylineWritersTitle) || "*";
-  let bylineWritersLocation = encodeURIComponent(formattedArticleData[0].article.bylineWritersLocation) || "*";
-  let url = encodeURIComponent(formattedArticleData[0].url.url) || "*";
-  let language = (formattedArticleData[0].basic.language === "Language_EN") ? (23) : ("*");
-  let date = formattedArticleData[0].basic.date || "*";
-  let bylineWriter = oipRefs[0].bylineWriterTXID.toString();
-  let tagList = formattedArticleData[0].basic.tagList || "*";
-  let imageList = formattedArticleData[0].article.imageList || "*";
-  let videoList = formattedArticleData[0].article.videoList || "*";
-  let imageCaptionList = formattedArticleData[0].article.imageCaptionList || "*";
-  let videoCaptionList = formattedArticleData[0].article.videoCaptionList || "*";
+async function searchForArticleRecord(formattedArticleData, oipRefs) {
+  let name = encodeURIComponent(formattedArticleData.basic.name) || "*";
+  let description = encodeURIComponent(formattedArticleData.basic.description) || "*";
+  let bylineWritersTitle = encodeURIComponent(formattedArticleData.article.bylineWritersTitle) || "*";
+  let bylineWritersLocation = encodeURIComponent(formattedArticleData.article.bylineWritersLocation) || "*";
+  let url = encodeURIComponent(formattedArticleData.url.url) || "*";
+  let language = (formattedArticleData.basic.language === "Language_EN") ? (23) : ("*");
+  let date = formattedArticleData.basic.date || "*";
+  let bylineWriter = oipRefs.bylineWriter_txid.toString();
+  let tagList = formattedArticleData.basic.tagList || "*";
+  let imageList = oipRefs.embeddedImage_txids || "*";
+  let videoList = oipRefs.embeddedVideo_txids || "*";
+  let imageCaptionList = formattedArticleData.article.imageCaptionList || "*";
+  let videoCaptionList = formattedArticleData.article.videoCaptionList || "*";
   
   let tagListParameterString = ""
-  for (let i = 0; i < formattedArticleData[0].basic.tagList.length; i++) {
-    let tag = encodeURIComponent(formattedArticleData[0].basic.tagList[i]) || "*";
+  for (let i = 0; i < formattedArticleData.basic.tagList.length; i++) {
+    let tag = encodeURIComponent(formattedArticleData.basic.tagList[i]) || "*";
     tagListParameterString += `record.details.tmpl_20AD45E7.tagList:"${tag}"%20AND%20`
+    // console.log('tagListParameterString', tagListParameterString)
   }
   
   let imageCaptionListParameterString = ""
-  for (let i = 0; i < formattedArticleData[0].article.imageCaptionList.length; i++) {
-    let imageCaption = encodeURIComponent(formattedArticleData[0].article.imageCaptionList[i]) || "*";
+  for (let i = 0; i < formattedArticleData.article.imageCaptionList.length; i++) {
+    let imageCaption = encodeURIComponent(formattedArticleData.article.imageCaptionList[i]) || "*";
     imageCaptionListParameterString += `record.details.tmpl_D019F2E1.imageCaptionList:"${imageCaption}"%20AND%20`
+    // console.log('imageCaptionListParameterString', imageCaptionListParameterString)
   }
 
   let videoCaptionListParameterString = ""
-  for (let i = 0; i < formattedArticleData[0].article.videoCaptionList.length; i++) {
-    let videoCaption = encodeURIComponent(formattedArticleData[0].article.videoCaptionList[i]) || "*";
+  for (let i = 0; i < formattedArticleData.article.videoCaptionList.length; i++) {
+    let videoCaption = encodeURIComponent(formattedArticleData.article.videoCaptionList[i]) || "*";
     videoCaptionListParameterString += `record.details.tmpl_D019F2E1.videoCaptionList:"${videoCaption}"%20AND%20`
+    // console.log('videoCaptionListParameterString', videoCaptionListParameterString)
   }
 
   let imageListParameterString = ""
-  for (let i = 0; i < formattedArticleData[0].article.imageList.length; i++) {
-    let image = encodeURIComponent(oipRefs[0].embeddedImageTXIDs[i]) || "*";
+  for (let i = 0; i < formattedArticleData.article.imageList.length; i++) {
+    let image = encodeURIComponent(oipRefs.embeddedImage_txids[i]) || "*";
     imageListParameterString += `record.details.tmpl_D019F2E1.imageList:"${image}"%20AND%20`
+    // console.log('imageListParameterString', imageListParameterString)
   }
   
   let videoListParameterString = ""
-  for (let i = 0; i < formattedArticleData[0].article.videoList.length; i++) {
-    let video = encodeURIComponent(oipRefs[0].embeddedVideoTXIDs[i]) || "*";
+  for (let i = 0; i < formattedArticleData.article.videoList.length; i++) {
+    let video = encodeURIComponent(oipRefs.embeddedVideo_txids[i]) || "*";
     videoListParameterString += `record.details.tmpl_D019F2E1.videoList:"${video}"%20AND%20`
+    // console.log('videoListParameterString', videoListParameterString)
   }
   let record
   let endpoint = "/o5/record/search?q="
@@ -745,6 +785,7 @@ async function searchForArticleRecord(formattedArticleData, oipRefs, formattedEm
       parameterString += `record.details.tmpl_20AD45E7.language:"${language}"%20AND%20`
     }
     if (bylineWriter !== "*") {
+      // console.log(bylineWriter)
       parameterString += `record.details.tmpl_D019F2E1.bylineWriter:"${bylineWriter}"%20AND%20`
     }
     if (bylineWritersTitle !== "*") {
@@ -803,13 +844,20 @@ async function getRecord(recordID) {
   
 }
 
-async function sendTxToPublishingSponsor(signedP64floData){
+// send signed p64floData to publishing sponsor to publish the tx
+async function sendTxToPublishingSponsor(signedP64floData, prev_txo, mpRef_txid){
   const endpoint = '/api/v1/sendTxToPublishingSponsor';
   const url = publishingSponsorAddress + endpoint;
-  const data = [{},{
-    "signedP64floData": signedP64floData
-  }]
-
+  const data = [
+    {
+      "prev_txo": prev_txo,
+      "mpRef_txid": mpRef_txid
+    },
+    {
+      "signedP64floData": signedP64floData
+    }
+  ]
+  // console.log('sendTxToPublishingSponsor data', data)
   const options = {
     method: 'POST',
     url: url,
@@ -828,6 +876,7 @@ async function sendTxToPublishingSponsor(signedP64floData){
   return result.data.txo;
 };
 
+// format data into an OIP record
 function makeRecord(data) {
   return {
     details: data,
@@ -836,13 +885,16 @@ function makeRecord(data) {
   }
 }
 
+// turn formatted data into floDataJSON
 async function makeFloDataJSON(payload, templates){
   let data = [];
   for (let i = 0; i < templates.length; i++) {
     let templateType = templates[i];
-    let templateInfo = await getTemplateInfo(templateType);
-    let templateDescriptor = templateInfo.descriptor;
-    let templateName = templateInfo.name;
+    // let templateInfo = await getTemplateInfo(templateType);
+    let lookedupTemplateInfo = await lookupTemplateInfo(templateType);
+
+    let templateDescriptor = lookedupTemplateInfo.descriptor;
+    let templateName = lookedupTemplateInfo.name;
     let templatePayload = payload[i]
     let template = {
       descriptor: templateDescriptor,
@@ -850,50 +902,60 @@ async function makeFloDataJSON(payload, templates){
       payload: templatePayload
     }
     data.push(template);
+    // console.log(i, 'templateInfo', templateInfo.name, 'lookedupTemplateInfo', lookedupTemplateInfo.name);
   }
   floDataJSON = makeRecord(data);
   return floDataJSON;
 }
 
 // make a raw TX and send it to the blockchain
-async function makeAndSendRawTransaction(signedP64floData, wif, selfPublish, prevTxO) {
+async function makeAndSendRawTransaction(signedP64floData, wif, selfPublish, prev_txo, mpRef_txid) {
   if (selfPublish === true) {
     network = 'mainnet';
-  let walletRPC = new RPCWallet({
-    publicAddress: myPubKey,
-    wif,
-    network,
-    rpc: {
-      port: walletClientPort,
-      host: '127.0.0.1',
-      username: 'x',
-      password: apiKey   
-    }
-  })
-  const result = await walletRPC.prepSignedTXforChain(signedP64floData, prevTxO);
-  
-  txid = await client.execute('sendrawtransaction', [result.signedTxHex]);
+    let walletRPC = new RPCWallet({
+      publicAddress: myPubKey,
+      wif,
+      network,
+      rpc: {
+        port: walletClientPort,
+        host: '127.0.0.1',
+        username: 'x',
+        password: apiKey   
+      }
+    })
+    const result = await walletRPC.prepSignedTXforChain(signedP64floData, prev_txo);
+    txid = await client.execute('sendrawtransaction', [result.signedTxHex]);
 
-  let txo = {
-    txid: txid,
-    amount: result.transactionOutput.amount,
-    address: result.transactionOutput.address,
-    vout: 0
-  };
-    return txo;
-  }
-  else {
-    const result = await sendTxToPublishingSponsor(signedP64floData, prevTxO)
-    return result;
-}
+    let txo = {
+      txid: txid,
+      amount: result.txo.amount,
+      address: result.txo.address,
+      vout: 0,
+      mpRef_txid: mpRef_txid
+    };
+      return txo;
+    }
+    else {
+      const result = await sendTxToPublishingSponsor(signedP64floData, prev_txo, mpRef_txid)
+      
+      let txo = {
+        txid: result.txid,
+        amount: result.amount,
+        address: result.address,
+        vout: 0,
+        mpRef_txid: mpRef_txid
+      };
+
+      return txo;
+    }
 }
 
 // publish signed P64floData to the blockchain, possibly as multipart
-async function publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO){
-  
+async function publishSignedOIPRecord(signedP64floData, wif, selfPublish, prev_txo){
   if (signedP64floData.length > 1040) {
     // mpx
-    // console.log('signed64 is too long, splitting into a multi-part message');
+    // console.log('signedP64floData is too long, sending as a multipart message');
+
     let mpx = new Modules.MultipartX(signedP64floData).multiparts;
     if (!Array.isArray(mpx)) {
       return console.log('uh oh', mpx);
@@ -905,17 +967,16 @@ async function publishSignedOIPRecord(signedP64floData, wif, selfPublish, record
     
     mpx[0].setSignature(mp1_sig);
     const signedp64_mp1_forPublishing = `${mpx[0].prefix}(${mpx[0].part},${mpx[0].max},${mpx[0].address},,${mpx[0].signature}):${mpx[0].data}`;
-    prevTxO = (recordTxO.length == 0) ? undefined : recordTxO[recordTxO.length-1];
-    firstTX = await makeAndSendRawTransaction(signedp64_mp1_forPublishing, wif, selfPublish, prevTxO);
+    let mpRef_txid = undefined;
+    firstTX = await makeAndSendRawTransaction(signedp64_mp1_forPublishing, wif, selfPublish, prev_txo, mpRef_txid);
     let mpTxIDArray = [];
     let mpTxOArray = [];
     mpTxIDArray.push(firstTX.txid);
     mpTxOArray.push(firstTX);
-
+    mpRef_txid = firstTX.txid;
+    // console.log('output for mp part number:', '1', mpTxOArray)
     // if first transaction has successfully been sent, start the loop
     if (firstTX) {
-      // let mp=1;
-      // console.log(`MP ${mp} of ${mpx.length}`,mpTxIDArray)
       const delay = ms => new Promise(res => setTimeout(res, ms));
       await delay(2000);
       for (let i = 1; i < mpx.length; i++) {
@@ -923,26 +984,161 @@ async function publishSignedOIPRecord(signedP64floData, wif, selfPublish, record
         mpx[i].setAddress(myPubKey);
         let sig = await signMessage(wif, myPubKey, mpx[i].getSignatureData());    
         mpx[i].setSignature(sig);
-        let result = await makeAndSendRawTransaction(`${mpx[i].prefix}(${mpx[i].part},${mpx[i].max},${mpx[i].address},${mpx[i].reference},${mpx[i].signature}):${mpx[i].data}`, wif, selfPublish, mpTxOArray[i-1]);
+        let result = await makeAndSendRawTransaction(`${mpx[i].prefix}(${mpx[i].part},${mpx[i].max},${mpx[i].address},${mpx[i].reference},${mpx[i].signature}):${mpx[i].data}`, wif, selfPublish, mpTxOArray[i-1], mpRef_txid);
         txo = result;
-        mpTxIDArray.push(result.txid);
-        mpTxOArray.push(result);
+        mpTxIDArray.push(txo.txid);
+        mpTxOArray.push(txo);
+        // console.log('output for mp part number:', i+1, mpTxOArray)
+
         
-        const recordTxidArray = await Promise.all([sig, result]).then((values) => {
+        const recordTxidArray = await Promise.all([sig, txo]).then((values) => {
           return (mpTxIDArray, mpTxOArray, txo)
         });
       }
     }
-
-    return ({txo, mpTxIDArray});
+    return (txo);
   } else {
     // single
     // console.log('signedP64floData is not too long, sending as a single message');
-    prevTxO = (recordTxO.length == 0) ? undefined : recordTxO[recordTxO.length-1];
+    let txo = await makeAndSendRawTransaction(signedP64floData, wif, selfPublish, prev_txo)
+    return (txo);
+  }
+}
 
-    let mpTxIDArray = []
-    let txo = await makeAndSendRawTransaction(signedP64floData, wif, selfPublish, prevTxO)
-    return ({txo, mpTxIDArray})
+// search for a previously published OIP record and return its txid if found, otherwise publish a new OIP record and return its txid
+async function findOrPublishRecord(recordType, formattedRecordData, selfPublish, wif, record_txo, i, oipRefs, referencedRecords){   
+  switch(recordType){
+    case 'bylineWriter':
+      bylineWriterInIndex = await searchForBylineWriter(formattedRecordData.bylineWriterData);
+      let bylineWriter_txid = [];
+      bylineWriterReference = (bylineWriterInIndex == null || bylineWriterInIndex == undefined || bylineWriterInIndex.total == 0) ? false : bylineWriterInIndex;
+      if (bylineWriterReference == false) {
+        const basic = formattedRecordData.bylineWriterData[0].basic
+        const person = formattedRecordData.bylineWriterData[0].person
+        const payload = [basic, person];
+        let templates = ['basic','person'];
+        let prev_txo = (record_txo.length > 0) ? record_txo[record_txo.length - 1] : undefined;
+        const floDataJSON = await makeFloDataJSON(payload, templates);
+        const signedP64floData = await getSignedP64FloData(floDataJSON, wif);
+        const txo = await publishSignedOIPRecord(signedP64floData, wif, selfPublish, prev_txo);
+        record_txo.push(txo);
+        bylineWriter_txid.push((txo.mpRef_txid !== undefined) ? txo.mpRef_txid : txo.txid)
+        let referenceRecordStatus = `bylineAuthor not found in index, published a new record for: ${formattedRecordData.bylineWriterData[0].basic.name} ${formattedRecordData.bylineWriterData[0].person.surname} with OIPRef:${bylineWriter_txid}`;
+        referencedRecords.push(referenceRecordStatus);
+          return  (bylineWriter_txid)
+      }else{
+        let referenceRecordStatus = `OIPRef:${bylineWriterInIndex.results[0].meta.txid} already exists for bylineWriter: ${formattedRecordData.bylineWriterData[0].basic.name} ${formattedRecordData.bylineWriterData[0].person.surname}`;
+        referencedRecords.push(referenceRecordStatus)
+        bylineWriter_txid.push(bylineWriterInIndex.results[0].meta.txid);
+          return (bylineWriter_txid)
+      };
+      break;
+    case 'embeddedVideo':
+      embeddedVideoInIndex = await searchForVideoRecords(formattedRecordData.embeddedVideos, i);
+      let embeddedVideo_txid = '';
+      embeddedVideoReference = (embeddedVideoInIndex == null || embeddedVideoInIndex == undefined || embeddedVideoInIndex.total == 0) ? false : embeddedVideoInIndex;
+      if (embeddedVideoReference == false) {
+        const basic = formattedRecordData.embeddedVideos[i].basic
+        const video = formattedRecordData.embeddedVideos[i].video
+        const youtube = formattedRecordData.embeddedVideos[i].youtube
+        const payload = [basic, video, youtube];
+        const templates = ['basic','video','youtube'];
+        let prev_txo = (record_txo.length > 0) ? record_txo[record_txo.length - 1] : undefined;
+        const floDataJSON = await makeFloDataJSON(payload, templates);
+        const signedP64floData = await getSignedP64FloData(floDataJSON, wif);
+        const txo = await publishSignedOIPRecord(signedP64floData, wif, selfPublish, prev_txo);
+        record_txo.push(txo);
+        embeddedVideo_txid = ((txo.mpRef_txid !== undefined) ? txo.mpRef_txid : txo.txid)
+        let referenceRecordStatus = `embeddedVideo not found in index, published a new record for: ${formattedRecordData.embeddedVideos[i].basic.name} with OIPRef:${embeddedVideo_txid}`;
+        referencedRecords.push(referenceRecordStatus);
+          return (embeddedVideo_txid)
+      }else{
+        let referenceRecordStatus = `OIPRef:${embeddedVideoInIndex.results[0].meta.txid} already exists for embeddedVideo: ${formattedRecordData.embeddedVideos[i].basic.name}`;
+        referencedRecords.push(referenceRecordStatus)
+        embeddedVideo_txid = (embeddedVideoInIndex.results[0].meta.txid);
+          return (embeddedVideo_txid)
+      };
+      break;
+    case 'embeddedImage':
+      embeddedImageInIndex = await searchForImageRecords(formattedRecordData.embeddedImages, i);
+      let embeddedImage_txid = '';
+      embeddedImageReference = (embeddedImageInIndex == null || embeddedImageInIndex == undefined || embeddedImageInIndex.total == 0) ? false : embeddedImageInIndex;
+      if (embeddedImageReference == false) {
+        const basic = formattedRecordData.embeddedImages[i].basic
+        const image = formattedRecordData.embeddedImages[i].image
+        const url = formattedRecordData.embeddedImages[i].url
+        const payload = [basic, image, url];
+        const templates = ['basic','image','url'];
+        let prev_txo = (record_txo.length > 0) ? record_txo[record_txo.length - 1] : undefined;
+        const floDataJSON = await makeFloDataJSON(payload, templates);
+        const signedP64floData = await getSignedP64FloData(floDataJSON, wif);
+        const txo = await publishSignedOIPRecord(signedP64floData, wif, selfPublish, prev_txo);
+        record_txo.push(txo);
+        embeddedImage_txid = ((txo.mpRef_txid !== undefined) ? txo.mpRef_txid : txo.txid)
+        let referenceRecordStatus = `embeddedImage not found in index, published a new record for: ${formattedRecordData.articleData[0].article.imageCaptionList[i]} with OIPRef:${embeddedImage_txid}`;
+        referencedRecords.push(referenceRecordStatus);
+          return (embeddedImage_txid)
+      }else{
+        let referenceRecordStatus = `OIPRef:${embeddedImageInIndex.results[0].meta.txid} already exists for embeddedImage: ${formattedRecordData.articleData[0].article.imageCaptionList[i]}`;
+        referencedRecords.push(referenceRecordStatus)
+        embeddedImage_txid = (embeddedImageInIndex.results[0].meta.txid);
+          return (embeddedImage_txid)
+      };
+      break;
+    case 'embeddedText':
+      embeddedTextInIndex = await searchForTextRecord(formattedRecordData.textData);
+      let embeddedText_txid = [];
+      embeddedTextReference = (embeddedTextInIndex == null || embeddedTextInIndex == undefined || embeddedTextInIndex.total == 0) ? false : embeddedTextInIndex;
+      if (embeddedTextReference == false) {
+
+        const basic = formattedRecordData.textData[0].basic
+        const text = formattedRecordData.textData[0].text
+        const url = formattedRecordData.textData[0].url
+        const payload = [basic, text, url];
+        const templates = ['basic','text','url'];
+        let prev_txo = (record_txo.length > 0) ? record_txo[record_txo.length - 1] : undefined;
+        const floDataJSON = await makeFloDataJSON(payload, templates);
+        const signedP64floData = await getSignedP64FloData(floDataJSON, wif);
+        const txo = await publishSignedOIPRecord(signedP64floData, wif, selfPublish, prev_txo);
+        record_txo.push(txo);
+        embeddedText_txid.push((txo.mpRef_txid !== undefined) ? txo.mpRef_txid : txo.txid);
+        let referenceRecordStatus = `embeddedText not found in index, published a new record for: ${formattedRecordData.textData[0].basic.name} with OIPRef:${embeddedText_txid}`;
+        referencedRecords.push(referenceRecordStatus);
+          return (embeddedText_txid)
+      }else{
+        let referenceRecordStatus = `OIPRef:${embeddedTextInIndex.results[0].meta.txid} already exists for embeddedText: ${formattedRecordData.textData[0].basic.name}`;
+        referencedRecords.push(referenceRecordStatus)
+        embeddedText_txid.push(embeddedTextInIndex.results[0].meta.txid);
+          return (embeddedText_txid)
+      };
+      break;
+    case 'article':
+      articleInIndex = await searchForArticleRecord(formattedRecordData, oipRefs);
+      let article_txid = [];
+      articleReference = (articleInIndex == null || articleInIndex == undefined || articleInIndex.total == 0) ? false : articleInIndex;
+      if (articleReference == false) {
+        const basic = formattedRecordData.basic
+        const article = formattedRecordData.article
+        const url = formattedRecordData.url
+        const payload = [basic, article, url];
+        const templates = ['basic','article','url'];
+        let prev_txo = (record_txo.length > 0) ? record_txo[record_txo.length - 1] : undefined;
+        const floDataJSON = await makeFloDataJSON(payload, templates);
+        const signedP64floData = await getSignedP64FloData(floDataJSON, wif);
+        const txo = await publishSignedOIPRecord(signedP64floData, wif, selfPublish, prev_txo);
+        record_txo.push(txo);
+        article_txid.push((txo.mpRef_txid !== undefined) ? txo.mpRef_txid : txo.txid)
+        let referenceRecordStatus = `article not found in index, published a new record for: ${formattedRecordData.basic.name} with OIPRef:${article_txid}`;
+        referencedRecords.push(referenceRecordStatus);
+          return (article_txid)
+      }else{
+        let referenceRecordStatus = `OIPRef:${articleInIndex.results[0].meta.txid} already exists for article: ${formattedRecordData.basic.name}, not publishing anything...`;
+        referencedRecords.push(referenceRecordStatus)
+        article_txid.push(articleInIndex.results[0].meta.txid);
+          return (article_txid)
+      }
+    default:
+      break;
   }
 }
 
@@ -952,7 +1148,6 @@ async function publishSignedOIPRecord(signedP64floData, wif, selfPublish, record
 // use this endpoint to check the chain sync status and other info
 app.get('/api/v1/getInfo', (req, res) => {
   getinfo().then(result => {
-    // console.log('result', result)
     let chainSync = (Math.floor(result.chain.progress * 1e6)/1e4) + ' %';
     let chainIsSynced = (result.chain.progress == 1) ? true : false;
     res.send({
@@ -1023,7 +1218,7 @@ app.post('/api/v1/createWallet', (req, res) => {
       "message": "Error: Passphrase is required"
     });
   } else {
-    createWallet(id, options).then(wallet => {//console.log('create wallet response:', wallet);
+    createWallet(id, options).then(wallet => {
     if (wallet.toString().startsWith("Error")) {
         res.send({
           "currentTime": new Date().toISOString(),
@@ -1112,10 +1307,14 @@ app.get('/api/v1/getWalletTxHistory', (req, res) => {
   console.log("handling RPC call: getWalletInfo");
 });
 
+// use this endpoint to send a transaction to a publishing sponsor
 app.post('/api/v1/sendTxToPublishingSponsor', async (req, res) => {
   if (allowSponsoredPublishing) {
+    const selfPublish = true
     console.log("handling RPC call: sendTxToPublishingSponsor");
     const publisherData = req.body[1];
+    const prev_txo = req.body[0].prev_txo;
+    const mpRef_txid = req.body[0].mpRef_txid;
     const account = 'default';
     let signedP64floData = publisherData.signedP64floData;
     try{
@@ -1123,12 +1322,12 @@ app.post('/api/v1/sendTxToPublishingSponsor', async (req, res) => {
         selectwallet(publishing_wallet_id, myPubKey, wif).then(wallet => { //console.log('wallet:', wallet)
           walletpassphrase(publishing_wallet_passphrase).then(resX => {//console.log('resX:', resX)
             getwalletinfo().then(walletinfo => { //console.log('walletinfo:', walletinfo)
-              makeAndSendRawTransaction(signedP64floData, wif, allowSponsoredPublishing).then(result => { console.log("sendTxToPublishingSponsor results:", result);
+              makeAndSendRawTransaction(signedP64floData, wif, selfPublish, prev_txo, mpRef_txid).then(txo => { //console.log("sendTxToPublishingSponsor results:", txo);
                 res.send({
                   "currentTime": new Date().toISOString(),
                   "message": "Record Sent Successfully",
-                  "txid": result.txid,
-                  "txo": result, 
+                  "txid": txo.txid,
+                  "txo": txo, 
                 });
               });
             });
@@ -1191,11 +1390,11 @@ app.post('/api/v1/publishOIPRecord', async (req, res) => {
       getFpub(publishing_wallet_id, account).then(fpub => { //console.log("fpub:", fpub)
         prepRegistration(pubKey, publisherName, fpub, wif).then(data => { //console.log('making floData for publisher registration:', data.details[0], 'pubKey:',data.pubKey);
           getSignedP64FloData(data, wif).then(signedP64floData => { //console.log('signed protobuf & hex64 encoded record:', {signedP64floData});
-            publishSignedOIPRecord(signedP64floData, wif, selfPublish).then(record => { //console.log("publisher registration record published:", record[0].recordTxID);
+            publishSignedOIPRecord(signedP64floData, wif, selfPublish).then(txo => { //console.log("publisher registration record published:", record[0].recordTxID);
               res.send({
                 "currentTime": new Date().toISOString(),
                 "message": "Publisher Registration Sent Successfully",
-                "RegistrationTxID": record[0].recordTxID,
+                "RegistrationTxID": txo.txid,
                 "PublisherAddress": data.pubKey,
                 "PublisherName": publisherName
               });
@@ -1212,207 +1411,72 @@ app.post('/api/v1/publishOIPRecord', async (req, res) => {
       })
     }
   } else if(recordType == "article"){
-    formattedRecordData = await formatRecord(recordData)
+    formattedRecordData = await formatRecord(recordData);
+    let include_references = [];
+    include_references.include_bylineWriter = (formattedRecordData.bylineWriterData !== undefined) ? true : false;
+    include_references.include_video = (formattedRecordData.embeddedVideos !== undefined) ? true : false;
+    include_references.include_image = (formattedRecordData.embeddedImages !== undefined) ? true : false;
+    include_references.include_text = (formattedRecordData.textData !== undefined) ? true : false;
     formattedBylineWriterData = formattedRecordData.bylineWriterData;
-    formattedTextData = formattedRecordData.textData;
-    formattedArticleData = formattedRecordData.articleData;
-    formattedEmbeddedImages = formattedRecordData.embeddedImages || [];
     formattedEmbeddedVideos = formattedRecordData.embeddedVideos || [];
     embeddedVideoQty = formattedRecordData.embeddedVideos.length || 0;
+    formattedEmbeddedImages = formattedRecordData.embeddedImages || [];
     embeddedImageQty = formattedEmbeddedImages.length || 0;
-
+    formattedTextData = formattedRecordData.textData;
+    formattedArticleData = formattedRecordData.articleData;
     let referencedRecords = [];
-    let recordTxO = [];
-    let bylineWriterTXID = [];
+    let record_txo = [];
+    let bylineWriter_txid = '';
+    let embeddedVideo_txids = [];
+    let embeddedImage_txids = [];
+    let embeddedText_txid = '';
+    let article_txid = '';
 
-    let bylineWriter = recordData.record.bylineWriter;
-    // first we check if the bylinewriter is already registered in the index
-    searchForBylineWriter(bylineWriter).then(bylineWriterRecord => {    
-      if(bylineWriterRecord == null || bylineWriterRecord == undefined || bylineWriterRecord.total == 0) {
-        let referenceRecordStatus = `bylineAuthor not found in index, publishing a new record for: ${bylineWriter}`;
-        referencedRecords.push(referenceRecordStatus);
-        const basic = formattedBylineWriterData[0].basic
-        const person = formattedBylineWriterData[0].person
-        const payload = [basic, person];
-        let templates = ['basic','person'];
-        makeFloDataJSON(payload, templates).then(floDataJSON => {
-          getSignedP64FloData(floDataJSON, wif).then(signedP64floData => {
-            publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { //console.log('bylineWriter record:', result);
-              txid = (result.mpTxIDArray.length == 0) ? (result.txo.txid) : (result.mpTxIDArray[0]);
-              bylineWriterTXID.push(txid)
-              recordTxO.push(result.txo);
-            });
-          })
-        })
-      }else{
-        let referenceRecordStatus = `OIPRef:${bylineWriterRecord.results[0].meta.txid} already exists for bylineWriter: "${bylineWriter}"`;
-        referencedRecords.push(referenceRecordStatus)
-        bylineWriterOIPRef = bylineWriterRecord.results[0].meta.txid;
-        bylineWriterTXID.push(bylineWriterOIPRef);
+    if (include_references.include_bylineWriter == true){
+      bylineWriter_txid = await findOrPublishRecord('bylineWriter', formattedRecordData, selfPublish, wif, record_txo, null, null, referencedRecords);
+    }
+    if (include_references.include_video == true){
+      for (let i = 0; i < embeddedVideoQty; i++){
+        let embeddedVideo_txid = await findOrPublishRecord('embeddedVideo', formattedRecordData, selfPublish, wif, record_txo, i, null, referencedRecords);
+        embeddedVideo_txids.push(embeddedVideo_txid);
       }
-    }).catch(err => {
-      console.log('Error searching for bylineWriter', err);
-    })
-
-    const delay = ms => new Promise(res => setTimeout(res, ms));
-    await delay(2000);
-
-    // then we check if there are any embedded videos and if so we loop thru them and create a new record for each one
-    let embeddedVideoTXIDs = [];
-    if (embeddedVideoQty > 0) {
-      for (let i = 0; i < embeddedVideoQty; i++) {
-        searchForVideoRecords(formattedEmbeddedVideos, i).then(prevPublishedVideoRecords => {
-          if(prevPublishedVideoRecords.count === 0){
-            let referenceRecordStatus = `embedded video not found in index, publishing a new record for: ${formattedEmbeddedVideos[i].basic.name}`;
-            referencedRecords.push(referenceRecordStatus);
-            const basic = formattedEmbeddedVideos[i].basic
-            const video = formattedEmbeddedVideos[i].video
-            const youtube = formattedEmbeddedVideos[i].youtube
-            const payload = [basic, video, youtube];
-            let templates = ['basic','video','youtube'];
-            makeFloDataJSON(payload, templates).then(floDataJSON => {
-              delay(2000 * (i)).then(waiting => { console.log(`delay for video ${i}:`, (2000 * (i)))
-                getSignedP64FloData(floDataJSON, wif).then(signedP64floData => { //console.log('status of recordTxO before trying to make video tx number', i, recordTxO)
-                  publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { //console.log('video record result number', i, result);
-                    txid = (result.mpTxIDArray.length == 0) ? (result.txo.txid) : (result.mpTxIDArray[0]);
-                    embeddedVideoTXIDs.push(txid)
-                    recordTxO.push(result.txo);
-                  });
-                });
-              });
-            });
-          } else {
-            let referenceRecordStatus = `OIPRef:${prevPublishedVideoRecords.results[0].meta.txid} already exists for video: "${formattedEmbeddedVideos[i].basic.name}"`;
-            referencedRecords.push(referenceRecordStatus)
-            embeddedVideoOIPRef = prevPublishedVideoRecords.results[0].meta.txid;
-            embeddedVideoTXIDs.push(embeddedVideoOIPRef);
+    }
+    if (include_references.include_image == true){
+      if (embeddedImageQty > 0) {
+        for (let i = 0; i < embeddedImageQty; i++) {
+          let embeddedImage_txid = await findOrPublishRecord('embeddedImage', formattedRecordData, selfPublish, wif, record_txo, i, null, referencedRecords);
+          embeddedImage_txids.push(embeddedImage_txid);
           }
-        }).catch(err => {
-          console.log('Error searching for video', err);
-        })
-      }
-    } else {
-      console.log('there are no embedded videos to publish');
-    }
-
-    await delay(2000);
-
-    // then we check if there are any embedded images and if so we loop thru them and create a new record for each one
-    let embeddedImageTXIDs = [];
-    if (embeddedImageQty > 0) {
-      for (let i = 0; i < embeddedImageQty; i++) {
-        searchForImageRecords(formattedEmbeddedImages, i).then(prevPublishedImageRecords => {
-        if(prevPublishedImageRecords.count === 0){
-          // console.log('formattedArticleData', formattedArticleData);
-          let referenceRecordStatus = `embedded image not found in index, publishing a new record for: ${formattedArticleData[0].article.imageCaptionList[i]}`;
-          referencedRecords.push(referenceRecordStatus);
-          const basic = formattedEmbeddedImages[i].basic
-          const image = formattedEmbeddedImages[i].image
-          const url = formattedEmbeddedImages[i].url
-          const payload = [basic, image, url];
-          let templates = ['basic','image', 'url'];
-          makeFloDataJSON(payload, templates).then(floDataJSON => {
-            delay(2000 * (i)).then(waiting => { console.log(`delay for image ${i}:`, (2000 * (i)))
-              getSignedP64FloData(floDataJSON, wif).then(signedP64floData => {
-                publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { //console.log('image record result:', result);
-                  txid = (result.mpTxIDArray.length == 0) ? (result.txo.txid) : (result.mpTxIDArray[0]);
-                  embeddedImageTXIDs.push(txid)
-                  recordTxO.push(result.txo);
-              });
-            })
-          })
-          })  
-        } else {
-          let referenceRecordStatus = `OIPRef:${prevPublishedImageRecords.results[0].meta.txid} already exists for image: "${formattedArticleData[0].article.imageCaptionList[i]}"`;
-          referencedRecords.push(referenceRecordStatus)
-          embeddedImageOIPRef = prevPublishedImageRecords.results[0].meta.txid;
-          embeddedImageTXIDs.push(embeddedImageOIPRef);
         }
-      })
       }
-    } else {
-      console.log('there are no embedded images to publish');
+    if (include_references.include_text == true){
+      embeddedText_txid = await findOrPublishRecord('embeddedText', formattedRecordData, selfPublish, wif, record_txo, null, null, referencedRecords);
     }
-    await delay(2000);
-    // next we publish the text data record
-    let embeddedTextTXID = [];
-    searchForTextRecord(formattedTextData).then(prevPublishedTextDataRecords => {
-      if(prevPublishedTextDataRecords.count === 0){
-        let referenceRecordStatus = `text not found in index, publishing a new record for: ${formattedTextData[0].basic.name}`;
-        referencedRecords.push(referenceRecordStatus);
-        const basic = formattedTextData[0].basic
-        const text = formattedTextData[0].text
-        const url = formattedTextData[0].url
-        const payload = [basic, text, url];
-        let templates = ['basic','text', 'url'];
-        makeFloDataJSON(payload, templates).then(floDataJSON => {
-          getSignedP64FloData(floDataJSON, wif).then(signedP64floData => {
-            publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { // console.log('text data record result:', result);
-              txid = (result.mpTxIDArray.length == 0) ? (result.txo.txid) : (result.mpTxIDArray[0]);
-              embeddedTextTXID = txid;
-              recordTxO.push(result.txo);
-            });
-          })
-        })
-      } else {
-        let referenceRecordStatus = `OIPRef:${prevPublishedTextDataRecords.results[0].meta.txid} already exists for text: "${formattedTextData[0].basic.name}"`;
-        referencedRecords.push(referenceRecordStatus)
-        textDataOIPRef = prevPublishedTextDataRecords.results[0].meta.txid;
-        embeddedTextTXID = textDataOIPRef;
-      }
 
-    })
-    await delay(2000);
-    // next we publish the article data record
-    let article = formattedArticleData[0].article;
-    let articleTXID = [];
-    const oipRefs = [{bylineWriterTXID: bylineWriterTXID,embeddedVideoTXIDs:embeddedVideoTXIDs, embeddedImageTXIDs:embeddedImageTXIDs, embeddedTextTXID:embeddedTextTXID}];
-    console.log('oipRefs:', oipRefs);
-    searchForArticleRecord(formattedArticleData, oipRefs, formattedEmbeddedImages, formattedEmbeddedVideos, formattedTextData).then(prevPublishedArticleRecords => {
-      if(prevPublishedArticleRecords.count === 0){
-        let referenceRecordStatus = `article not found in index, publishing a new record for: ${formattedArticleData[0].basic.name}`;
-        referencedRecords.push(referenceRecordStatus)
-        const basic = formattedArticleData[0].basic
-        const url = formattedArticleData[0].url
-        article.bylineWriter = bylineWriterTXID[0];
-        article.videoList = embeddedVideoTXIDs
-        article.imageList = embeddedImageTXIDs
-        article.articleText = embeddedTextTXID
-        const payload = [basic, article, url];
-        let templates = ['basic','article','url'];
-        makeFloDataJSON(payload, templates).then(floDataJSON => {
-          getSignedP64FloData(floDataJSON, wif).then(signedP64floData => {
-            publishSignedOIPRecord(signedP64floData, wif, selfPublish, recordTxO).then(result => { //console.log('article data record result:', result);
-              txid = (result.mpTxIDArray.length == 0) ? (result.txo.txid) : (result.mpTxIDArray[0]);
-              recordTxO.push(result.txo);
-              articleTxID = txid;
-              console.log(referencedRecords);
-              console.log(`Record published successfully for "${formattedArticleData[0].basic.name}," TXID: ${articleTxID}`);
-              res.send({
-                "current time": new Date().toISOString(),
-                "message": "Published Successfully",
-                "article TxID": articleTxID,
-                "oipRefs": oipRefs
-              });
-            });
-          })
-        })
+      
+      const oipRefs = ({bylineWriter_txid: bylineWriter_txid,embeddedVideo_txids:embeddedVideo_txids, embeddedImage_txids:embeddedImage_txids, embeddedText_txid:embeddedText_txid});
+      let formattedArticleRecord = formattedRecordData.articleData;
+
+      formattedArticleRecord[0].article = {
+        bylineWriter: bylineWriter_txid[0],
+        bylineWritersTitle: formattedRecordData.articleData[0].article.bylineWritersTitle,
+        bylineWritersLocation: formattedRecordData.articleData[0].article.bylineWritersLocation,
+        videoList: embeddedVideo_txids,
+        videoCaptionList: formattedRecordData.articleData[0].article.videoCaptionList,
+        imageList: embeddedImage_txids,
+        imageCaptionList: formattedRecordData.articleData[0].article.imageCaptionList,
+        articleText: embeddedText_txid[0],
       }
-      else {
-        let referenceRecordStatus = `OIPRef:${prevPublishedArticleRecords.results[0].meta.txid} already exists for article: "${formattedArticleData[0].basic.name}," not publishing anything...`
-        referencedRecords.push(referenceRecordStatus)
-        console.log(referenceRecordStatus)
-        articleTXID = prevPublishedArticleRecords.results[0].meta.txid;
-        res.send({
-          "current time": new Date().toISOString(),
-          "message": "Matching Article Record Already Exists",
-          "Article txid": articleTXID,
-          "oipRefs": oipRefs
-        });
-      }
-    }).catch(err => {
-      console.log('Error searching for article record', err);
-    })
+      article_txid = await findOrPublishRecord('article', formattedArticleRecord[0], selfPublish, wif, record_txo, null, oipRefs, referencedRecords);
+      // console.log(referencedRecords);
+      // console.log({article_txid}, oipRefs)
+      res.send({
+        "current time": new Date().toISOString(),
+        "message": "Published Successfully",
+        "article TxID": article_txid,
+        "OIPRefs": referencedRecords
+      });
+
   } else {
     res.send({
       "current time": new Date().toISOString(),
@@ -1435,11 +1499,27 @@ app.get('/api/v1/getRecord/:recordID', async (req, res) => {
       });
   } catch (e) {
     if (e) {
-      res.send({
-        "currentTime": new Date().toISOString(),
-        "message": "Record Not Found",
-        "recordID": recordID
-      });
+      try{
+        const url = `https://floexplorer.net/api/v1/tx/${recordID}`;
+        const explorer_response = await axios.get(url);
+        const blockheight = explorer_response.data.blockheight;
+        const confirmations = explorer_response.data.confirmations;
+        const time = explorer_response.data.time;
+        res.send({
+          "currentTime": new Date().toISOString(),
+          "message": "Record Not Found, but TXID is in the explorer",
+          "txid": recordID,
+          "blockheight": (explorer_response.data.blockheight == -1) ? ('in mempool') : (explorer_response.data.blockheight),
+          "confirmations": confirmations,
+          "time": time
+        });
+      } catch (e) {
+        res.send({
+          "currentTime": new Date().toISOString(),
+          "message": "Record Not Found, and TXID is not in the explorer",
+          "recordID": recordID
+        });
+      }
     }
   }
 })
@@ -1503,11 +1583,27 @@ app.get('/api/v1/getExpandedRecord/:recordID', async (req, res) => {
     });
   } catch (e) {
     if (e) {
-      res.send({
-        "currentTime": new Date().toISOString(),
-        "message": "Record Not Found",
-        "recordID": recordID
-      });
+      try{
+        const url = `https://floexplorer.net/api/v1/tx/${recordID}`;
+        const explorer_response = await axios.get(url);
+        const blockheight = (explorer_response.data.blockheight == -1) ? ('in mempool') : (explorer_response.data.blockheight);
+        const confirmations = explorer_response.data.confirmations;
+        const time = explorer_response.data.time;
+        res.send({
+          "currentTime": new Date().toISOString(),
+          "message": "Record Not Found, but TXID is in the explorer",
+          "txid": recordID,
+          "blockheight": blockheight,
+          "confirmations": confirmations,
+          "time": time
+        });
+      } catch (e) {
+        res.send({
+          "currentTime": new Date().toISOString(),
+          "message": "Record Not Found, and TXID is not in the explorer",
+          "recordID": recordID
+        });
+      }
     }
   }
 })
