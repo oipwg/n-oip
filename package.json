@@ -5,8 +5,8 @@
   "main": "publishingApi.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "liteNode": " ./node_modules/fcoin/bin/fcoin --prefix ~/.fcoin_litenode --spv --http-port=7313 --node-port=31313 --prune=true --index-tx=false --index-address=false --log-level=error --no-auth=false & nodemon publishingApi.js",
-    "fullNode": " ./node_modules/fcoin/bin/fcoin --prefix ~/.fcoin_fullnode --http-port=13230 --node-port=31314 --allow-sponsored-publishing=true --index-tx=true --index-address=true --log-level=error --no-auth=false & nodemon publishingApi.js"
+    "liteNode": " ./node_modules/fcoin/bin/fcoin --prefix ~/.fcoin_litenode --spv --http-port=7313 --prune=true --index-tx=false --index-address=false --log-level=error --no-auth=false & nodemon publishingApi.js",
+    "fullNode": " ./node_modules/fcoin/bin/fcoin --prefix ~/.fcoin_fullnode --http-port=13230 --allow-sponsored-publishing=true --index-tx=true --index-address=true --log-level=error --no-auth=false & nodemon publishingApi.js"
   },
   "author": "",
   "license": "ISC",
