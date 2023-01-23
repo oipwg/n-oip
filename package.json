@@ -1,11 +1,11 @@
 {
   "name": "oip-publishing-api",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "publishing api for Open Index Protocol",
   "main": "publishingApi.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "liteNode": " ./node_modules/fcoin/bin/fcoin --prefix ~/.fcoin_litenode --spv --http-port=7313 --prune=true --index-tx=false --index-address=false --log-level=error --no-auth=false & nodemon publishingApi.js",
+    "liteNode": " ./node_modules/fcoin/bin/fcoin --prefix ~/.fcoin_litenode --spv --http-port=7313 --allow-sponsored-publishing=true --prune=true --index-tx=false --index-address=false --log-level=error --no-auth=false & nodemon publishingApi.js",
     "fullNode": " ./node_modules/fcoin/bin/fcoin --prefix ~/.fcoin_fullnode --http-port=13230 --allow-sponsored-publishing=true --index-tx=true --index-address=true --log-level=error --no-auth=false & nodemon publishingApi.js"
   },
   "author": "",
@@ -25,6 +25,7 @@
     "es6": "^0.0.7",
     "express": "^4.17.3",
     "fcoin": "github:oipwg/fcoin",
+    "fs": "^0.0.1-security",
     "insight-explorer": "git+https://github.com/oipwg/insight-explorer.git",
     "js-oip": "github:oipwg/js-oip",
     "leveldown": "^6.1.1",
